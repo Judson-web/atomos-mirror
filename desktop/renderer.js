@@ -127,6 +127,9 @@ async function connect(role = "sender", retry = false) {
       hint(message.message || "Pairing failed.");
       status("Pairing failed");
       if (/PIN/i.test(message.message || "")) reconnectEnabled = false;
+    } else if (message.type === "peer" && message.state === "joined") {
+      hint((message.name || "A device") + " joined the session.");
+      if (role === "sender" && stream) await negotiateDesktopStream();
     } else if (message.type === "peer" && message.state === "left") {
       hint((message.name || "The paired device") + " disconnected.");
     }
