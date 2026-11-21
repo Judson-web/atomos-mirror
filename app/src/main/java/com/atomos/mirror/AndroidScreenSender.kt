@@ -8,6 +8,7 @@ import org.json.JSONObject
 import org.webrtc.*
 import java.net.URI
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -33,6 +34,9 @@ class AndroidScreenSender(
     private val reconnectExecutor = Executors.newSingleThreadScheduledExecutor()
     private val reconnectPending = AtomicBoolean(false)
     @Volatile private var reconnectAttempts = 0
+    private val statsExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var previousBytesSent = -1L
+    @Volatile private var previousStatsAt = 0L
 
     fun start() {
         PeerConnectionFactory.initialize(
@@ -91,6 +95,7 @@ class AndroidScreenSender(
         capturer!!.startCapture(1280, 720, 30)
 
         connectSignalling()
+        statsExecutor.scheduleAtFixedRate({ collectStats() }, 2, 1, TimeUnit.SECONDS)
     }
 
     private fun connectSignalling() {
@@ -138,6 +143,53 @@ class AndroidScreenSender(
         }, waitSeconds, TimeUnit.SECONDS)
     }
 
+    private fun collectStats() {
+        val currentPeer = peer ?: return
+        if (stopped) return
+        try {
+            currentPeer.getStats { report ->
+                try {
+                    var bytesSent = 0L
+                    var fps = 0.0
+                    var packetLoss = 0L
+                    var rttSeconds = -1.0
+                    report.statsMap.values.forEach { stat ->
+                        val members = stat.members
+                        when (stat.type) {
+                            "outbound-rtp" -> {
+                                bytesSent += (members["bytesSent"] as? Number)?.toLong() ?: 0L
+                                fps = (members["framesPerSecond"] as? Number)?.toDouble()
+                                    ?: (members["framesEncoded"] as? Number)?.toDouble() ?: fps
+                            }
+                            "remote-inbound-rtp" -> {
+                                packetLoss += (members["packetsLost"] as? Number)?.toLong() ?: 0L
+                                rttSeconds = (members["roundTripTime"] as? Number)?.toDouble() ?: rttSeconds
+                            }
+                            "candidate-pair" -> {
+                                val selected = members["selected"] as? Boolean ?: false
+                                if (selected) rttSeconds = (members["currentRoundTripTime"] as? Number)?.toDouble() ?: rttSeconds
+                            }
+                        }
+                    }
+                    val now = System.currentTimeMillis()
+                    val bitrate = if (previousBytesSent >= 0 && previousStatsAt > 0 && now > previousStatsAt)
+                        ((bytesSent - previousBytesSent).coerceAtLeast(0) * 8.0 / ((now - previousStatsAt) / 1000.0)).toLong()
+                    else -1L
+                    previousBytesSent = bytesSent
+                    previousStatsAt = now
+                    val payload = JSONObject().put("type", "diagnostics")
+                        .put("source", "Android sender")
+                        .put("state", currentPeer.connectionState().name.lowercase())
+                        .put("bitrateBps", bitrate).put("fps", fps)
+                        .put("packetsLost", packetLoss)
+                        .put("rttMs", if (rttSeconds >= 0) (rttSeconds * 1000).toLong() else -1)
+                        .put("at", now)
+                    send(payload)
+                } catch (_: Exception) { }
+            }
+        } catch (_: Exception) { }
+    }
+
     private fun createOffer() {
         peer?.createOffer(object : SdpObserverAdapter() {
             override fun onCreateSuccess(description: SessionDescription) {
@@ -159,6 +211,7 @@ class AndroidScreenSender(
         if (stopped) return
         stopped = true
         reconnectExecutor.shutdownNow()
+        statsExecutor.shutdownNow()
         reconnectPending.set(false)
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { socket?.close() } catch (_: Exception) {}
