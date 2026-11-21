@@ -11,6 +11,7 @@ import android.net.nsd.NsdServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import org.json.JSONArray
 
 /**
  * Owns the local dashboard, WebRTC signalling socket and mDNS advertisement.
@@ -30,7 +31,9 @@ class MirrorReceiverService : Service() {
     @Volatile private var infrastructureReady = false
     @Volatile private var startupError: String? = null
 
-    val pairingPin: String get() = signalServer?.pairingPin ?: ""
+    fun approvePairingToken(token: String): Boolean = signalServer?.approvePairingToken(token) == true
+    fun approvedPairingToken(): String? = signalServer?.approvedPairingToken()
+    fun connectedDevices(): JSONArray = signalServer?.devicesJson() ?: JSONArray()
     val httpPort: Int get() = httpServer?.listeningPort ?: HTTP_PORT
     fun localAddress(): String = httpServer?.localAddress() ?: "Starting receiver…"
     fun statusText(): String = startupError?.let { "Receiver failed: $it" }
@@ -72,7 +75,7 @@ class MirrorReceiverService : Service() {
             val signalling = SignalServer(SIGNAL_PORT)
             signalling.start()
             signalServer = signalling
-            val http = LocalReceiverServer(applicationContext, HTTP_PORT) { signalling.devicesJson() }
+            val http = LocalReceiverServer(applicationContext, HTTP_PORT, { signalling.devicesJson() }, { host -> signalling.createPairingChallenge(host) }, { signalling.approvedPairingToken() })
             http.start()
             httpServer = http
             advertiseReceiver()
