@@ -12,13 +12,16 @@ import java.net.URI
 class AndroidScreenSender(
     private val context: Context,
     private val projectionData: Intent,
-    private val pairingPin: String
+    private val pairingPin: String,
+    private val microphoneEnabled: Boolean = false
 ) {
     private var factory: PeerConnectionFactory? = null
     private var peer: PeerConnection? = null
     private var capturer: ScreenCapturerAndroid? = null
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
+    private var microphoneSource: AudioSource? = null
+    private var microphoneTrack: AudioTrack? = null
     private var textureHelper: SurfaceTextureHelper? = null
     private var egl: EglBase? = null
     private var socket: WebSocketClient? = null
@@ -63,6 +66,16 @@ class AndroidScreenSender(
         videoSource = factory!!.createVideoSource(true)
         videoTrack = factory!!.createVideoTrack("atomos-screen", videoSource!!)
         peer!!.addTrack(videoTrack!!, listOf("atomos-screen-stream"))
+        if (microphoneEnabled) {
+            val audioConstraints = MediaConstraints().apply {
+                mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            }
+            microphoneSource = factory!!.createAudioSource(audioConstraints)
+            microphoneTrack = factory!!.createAudioTrack("atomos-microphone", microphoneSource!!)
+            peer!!.addTrack(microphoneTrack!!, listOf("atomos-audio-stream"))
+        }
 
         textureHelper = SurfaceTextureHelper.create("AtomosScreenCapture", egl!!.eglBaseContext)
         capturer = ScreenCapturerAndroid(projectionData, object : android.media.projection.MediaProjection.Callback() {
@@ -123,7 +136,7 @@ class AndroidScreenSender(
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { socket?.close() } catch (_: Exception) {}
         try { peer?.close(); peer?.dispose() } catch (_: Exception) {}
-        try { videoTrack?.dispose(); videoSource?.dispose() } catch (_: Exception) {}
+        try { videoTrack?.dispose(); videoSource?.dispose(); microphoneTrack?.dispose(); microphoneSource?.dispose() } catch (_: Exception) {}
         try { capturer?.dispose(); textureHelper?.dispose() } catch (_: Exception) {}
         try { factory?.dispose(); egl?.release() } catch (_: Exception) {}
     }
