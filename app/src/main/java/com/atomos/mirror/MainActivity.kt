@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private var bound = false
     private var shareWithMicrophone = false
     private var pendingShareRequest = false
+    private val receiverPrefs by lazy { getSharedPreferences("atomos_mirror", MODE_PRIVATE) }
     private lateinit var projectionManager: MediaProjectionManager
 
     private val serviceConnection = object : ServiceConnection {
@@ -56,7 +57,7 @@ class MainActivity : ComponentActivity() {
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             val pin = receiverService?.pairingPin
-            if (pin != null) {
+            if (!pin.isNullOrBlank()) {
                 val shareIntent = Intent(this, AndroidScreenShareService::class.java)
                     .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
                     .putExtra(AndroidScreenShareService.EXTRA_PIN, pin)
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
                 surface = Color(0xFF121B2C), secondary = Color(0xFF75DDB7)
             )) {
                 MirrorHome(
+                    initialHosting = receiverPrefs.getBoolean("receiver_enabled", false),
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
                     onShareAndroid = { withMicrophone ->
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        if (receiverPrefs.getBoolean("receiver_enabled", false)) startReceiver()
     }
 
     private fun requestScreenCapture() {
@@ -104,12 +107,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startReceiver() {
+        receiverPrefs.edit().putBoolean("receiver_enabled", true).apply()
         val intent = Intent(this, MirrorReceiverService::class.java).setAction(MirrorReceiverService.ACTION_START)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         if (!bound) bound = bindService(Intent(this, MirrorReceiverService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     private fun stopReceiver() {
+        receiverPrefs.edit().putBoolean("receiver_enabled", false).apply()
         pendingShareRequest = false
         stopService(Intent(this, AndroidScreenShareService::class.java))
         stopService(Intent(this, MirrorReceiverService::class.java).setAction(MirrorReceiverService.ACTION_STOP))
@@ -133,8 +138,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: (Boolean) -> Unit, onStopAndroid: () -> Unit, addressProvider: () -> String) {
-    var hosting by remember { mutableStateOf(false) }
+private fun MirrorHome(initialHosting: Boolean, onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: (Boolean) -> Unit, onStopAndroid: () -> Unit, addressProvider: () -> String) {
+    var hosting by remember { mutableStateOf(initialHosting) }
     var microphoneEnabled by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf("") }
     LaunchedEffect(hosting) {
@@ -164,7 +169,7 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Cast, null, tint = Color(0xFF86A9FF)); Spacer(Modifier.width(10.dp))
                         Text("Browser receiver", fontWeight = FontWeight.Bold, fontSize = 17.sp); Spacer(Modifier.weight(1f))
-                        Text(if (hosting) "ONLINE" else "OFFLINE", color = if (hosting) Color(0xFF75DDB7) else Color(0xFF9EADC7), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(if (!hosting) "OFFLINE" else if (address.startsWith("Receiver failed")) "ERROR" else if (address.startsWith("Starting")) "STARTING" else "ONLINE", color = if (hosting && !address.startsWith("Receiver failed")) Color(0xFF75DDB7) else Color(0xFF9EADC7), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(18.dp))
                     Text(if (hosting) "Open this address on another device:" else "Start the local receiver to show its connection address.", color = Color(0xFF9EADC7), fontSize = 13.sp)
