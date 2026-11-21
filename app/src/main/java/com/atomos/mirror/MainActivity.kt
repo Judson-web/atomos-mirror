@@ -81,7 +81,10 @@ class MainActivity : ComponentActivity() {
             if (shareWithInternalAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 audioCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
             } else launchScreenShare(null)
-        } else pendingVideoProjection = null
+        } else {
+            pendingVideoProjection = null
+            android.widget.Toast.makeText(this, "Screen sharing was cancelled. Tap Share this phone screen to try again.", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     private val audioCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -96,7 +99,11 @@ class MainActivity : ComponentActivity() {
     private fun launchScreenShare(audioProjection: Intent?) {
         val videoProjection = pendingVideoProjection ?: return
         pendingVideoProjection = null
-        val token = receiverService?.approvedPairingToken() ?: return
+        val token = receiverService?.approvedPairingToken()
+        if (token.isNullOrBlank()) {
+            android.widget.Toast.makeText(this, "Pairing expired. Generate a new laptop QR and approve it again.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         val shareIntent = Intent(this, AndroidScreenShareService::class.java)
             .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, videoProjection)
             .putExtra(AndroidScreenShareService.EXTRA_PAIRING_TOKEN, token)
@@ -127,7 +134,14 @@ class MainActivity : ComponentActivity() {
                     onShareAndroid = { withInternalAudio ->
                         shareWithInternalAudio = withInternalAudio
                         receiverPrefs.edit().putBoolean("internal_audio_enabled", withInternalAudio).apply()
-                        if (!receiverService?.approvedPairingToken().isNullOrBlank()) requestScreenCapture()
+                        if (receiverService == null || !bound) {
+                            pendingShareRequest = true
+                            startReceiver()
+                        } else if (!receiverService?.approvedPairingToken().isNullOrBlank()) {
+                            requestScreenCapture()
+                        } else {
+                            android.widget.Toast.makeText(this, "Approve the laptop QR before sharing.", android.widget.Toast.LENGTH_LONG).show()
+                        }
                     },
                     onStopAndroid = {
                         stopService(Intent(this, AndroidScreenShareService::class.java)
@@ -176,6 +190,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestScreenCapture() {
+        if (receiverService?.approvedPairingToken().isNullOrBlank()) {
+            android.widget.Toast.makeText(this, "Approve the laptop QR before sharing.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         if (shareWithInternalAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
