@@ -1,35 +1,36 @@
 # Atomos Mirror
 
-**Local Wi-Fi screen mirroring for Android and browser receivers.**
+**Local-network screen mirroring for Android and Windows, designed to work without cloud hosting.**
 
-The receiver dashboard is served directly by the Android device. It is not a hosted website and does not require a cloud account.
+The Android app hosts its dashboard and signalling endpoint directly on the phone. The Windows companion is a separate desktop app. Both devices must be on the same reachable LAN/Wi-Fi network.
 
-## Current foundation (0.1.0)
+## Current implementation (0.2.0 development)
 
-- Native Android application built with Kotlin and Jetpack Compose.
-- On-device HTTP receiver dashboard powered by NanoHTTPD.
-- Local network address display and JSON status endpoint at /api/status.
-- Browser dashboard with receiver status and connection-list placeholder.
-- No account or internet dependency for the local dashboard.
+- Android app with a locally served receiver dashboard.
+- Six-digit pairing PIN generated for each receiver session.
+- Local WebSocket signalling relay on port 8766. It relays SDP/ICE messages only; media is peer-to-peer.
+- Windows Electron companion with desktop/window capture via Electron's display-media API.
+- WebRTC sender in Windows and WebRTC receiver in the Android-hosted browser dashboard.
+- Windows installer configuration using electron-builder (NSIS).
 
-## Architecture
+## Windows companion
 
-- Android sender/host: Kotlin, Jetpack Compose, MediaProjection and MediaCodec.
-- Local receiver web UI: bundled HTML served by the Android app.
-- Discovery: Android NSD/mDNS (next integration).
-- Media transport: WebRTC (next integration).
-- Audio: Android playback capture where source apps permit it, plus microphone capture with explicit permission.
+Install Node.js 20+ on Windows. In PowerShell, from the repository's `desktop` directory run `npm install`, then `npm start`. To build an installer run `npm run dist`.
 
-## Run
+Start the receiver in Android, open the displayed HTTP address on the laptop, and note the pairing PIN. Enter the phone's LAN IP and PIN in the Windows companion, connect, then choose **Share desktop** and approve the Windows capture prompt.
 
-Open the project in Android Studio with JDK 17 and Android SDK 36 installed. Build and run the app module on an Android 8.0+ device.
+## Network
 
-Start Browser receiver in the app, then open the displayed http://<device-lan-ip>:8765 address on another device connected to the same Wi-Fi network.
+- TCP 8765: Android-hosted dashboard/status.
+- TCP 8766: Android-hosted WebSocket signalling.
+- WebRTC media: direct peer-to-peer UDP candidates.
 
-## Implementation status
+Allow the Windows app through Windows Defender Firewall on private networks. Guest Wi-Fi, client isolation, VPNs and some mesh configurations can block local connectivity.
 
-This is the first application foundation, not a finished mirroring release. The local web dashboard and HTTP status endpoint are implemented. Device discovery, secure pairing, WebRTC negotiation, actual screen capture/encoding, audio capture/mixing, and receiver playback remain to be implemented and tested before claiming live mirroring.
+## Honest implementation status
 
-## Platform notes
+**Implemented in source, not yet device-validated:** Windows desktop capture flow, PIN authentication, WebSocket signalling, and browser WebRTC receiver negotiation.
 
-Android requires user approval for MediaProjection screen capture. Internal playback capture is subject to Android version requirements and the source application's capture policy. Microphone capture requires runtime permission. Router client isolation, VPNs, and firewall rules can prevent peer connectivity.
+**Not implemented:** Android-native screen capture and Android-to-Windows sending, foreground-service persistence, native Windows WASAPI controls, automatic discovery, advanced resolution/FPS/bitrate controls, multi-monitor picker and production hardening. Loopback audio capture is best-effort and depends on Windows/Electron capture support. The Windows app currently selects the first available screen/window source.
+
+This is not yet a production-ready release. A successful CI build and real Android/Windows end-to-end test are still required.
