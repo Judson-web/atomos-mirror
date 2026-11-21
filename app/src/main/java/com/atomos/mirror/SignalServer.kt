@@ -48,7 +48,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
                     broadcast(JSONObject().put("type", "peer").put("deviceId", peer.id).put("name", peer.name)
                         .put("role", role).put("state", "joined"), conn)
                 }
-                "offer", "answer", "ice", "hangup" -> {
+                "offer", "answer", "ice", "hangup", "diagnostics" -> {
                     if (!peers.containsKey(conn)) { conn.send(error("Pair before signalling")); return }
                     broadcast(JSONObject(message), conn)
                 }
