@@ -27,7 +27,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
                     if (role != "sender" && role != "receiver") {
                         conn.send(error("Unsupported role")); return
                     }
-                    if (role == "sender" && data.optString("pin") != pairingPin) {
+                    if (data.optString("pin") != pairingPin) {
                         conn.send(error("Incorrect pairing PIN")); conn.close(1008, "Pairing rejected"); return
                     }
                     roles[conn] = role
