@@ -107,6 +107,7 @@ class AndroidScreenSender(
                     val json = JSONObject(message)
                     when (json.optString("type")) {
                         "joined" -> createOffer()
+                        "peer" -> if (json.optString("state") == "joined") createOffer()
                         "answer" -> peer?.setRemoteDescription(object : SdpObserverAdapter() {
                             override fun onSetSuccess() {
                                 while (pendingRemoteIce.isNotEmpty()) peer?.addIceCandidate(pendingRemoteIce.poll())
