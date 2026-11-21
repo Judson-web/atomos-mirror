@@ -13,11 +13,34 @@ function hint(text) { $("hint").textContent = text; }
 function send(message) {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
+async function refreshSources() {
+  const select = $("source");
+  select.innerHTML = '<option value="">Loading displays…</option>';
+  try {
+    const sources = await window.atomos.listSources();
+    select.innerHTML = "";
+    for (const source of sources) {
+      const option = document.createElement("option");
+      option.value = source.id;
+      option.textContent = source.type + " · " + source.name;
+      select.appendChild(option);
+    }
+    if (!sources.length) select.innerHTML = '<option value="">No capture sources found</option>';
+    else await window.atomos.selectSource(select.value);
+  } catch (error) {
+    select.innerHTML = '<option value="">Source list unavailable</option>';
+    hint("Could not enumerate capture sources: " + error.message);
+  }
+}
+$("source").addEventListener("change", () => window.atomos.selectSource($("source").value));
+$("refresh-sources").addEventListener("click", refreshSources);
+
 async function connect(role = "sender") {
   activeRole = role;
   const host = $("host").value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const pin = $("pin").value.trim();
   if (!host || !/^\d{6}$/.test(pin)) return hint("Enter the Android local IP address and its six-digit pairing PIN.");
+  if (socket) socket.close();
   socket = new WebSocket("ws://" + host + ":8766");
   status("Connecting");
   socket.onopen = () => {
@@ -29,7 +52,7 @@ async function connect(role = "sender") {
     if (message.type === "joined") {
       status("Paired", true);
       $("share").disabled = role !== "sender";
-      hint(role === "sender" ? "Paired. Choose Share desktop to send this PC's screen." : "Waiting for the Android phone to start sharing its screen…");
+      hint(role === "sender" ? "Paired. Choose Share desktop to send this PC's screen." : "Paired. Waiting for the Android phone to start sharing.");
     } else if (message.type === "offer" && role === "receiver") {
       peer = new RTCPeerConnection({ iceServers: [] });
       $("preview").muted = false;
@@ -75,11 +98,27 @@ async function connect(role = "sender") {
 }
 async function share() {
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 60 } }, audio: true });
+    const [width, height] = $("resolution").value.split("x").map(Number);
+    const fps = Number($("fps").value);
+    const bitrate = Number($("bitrate").value);
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps, max: fps } },
+      audio: true
+    });
     $("preview").muted = true;
     $("preview").srcObject = stream;
     peer = new RTCPeerConnection({ iceServers: [] });
-    stream.getTracks().forEach(track => peer.addTrack(track, stream));
+    stream.getTracks().forEach(track => {
+      const sender = peer.addTrack(track, stream);
+      if (track.kind === "video") {
+        const parameters = sender.getParameters();
+        parameters.encodings = parameters.encodings && parameters.encodings.length ? parameters.encodings : [{}];
+        parameters.encodings[0].maxBitrate = bitrate;
+        parameters.encodings[0].maxFramerate = fps;
+        parameters.degradationPreference = "maintain-resolution";
+        sender.setParameters(parameters).catch(() => {});
+      }
+    });
     peer.onicecandidate = event => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
     peer.onconnectionstatechange = () => { $("quality").textContent = peer.connectionState; };
     const offer = await peer.createOffer();
@@ -87,7 +126,7 @@ async function share() {
     send({ type: "offer", description: peer.localDescription });
     $("stop").disabled = false;
     $("share").disabled = true;
-    hint("Sharing request sent. Keep this app open while the Android receiver connects.");
+    hint("Sharing at up to " + width + "×" + height + " · " + fps + " FPS · " + (bitrate / 1000000) + " Mbps.");
     stream.getVideoTracks()[0].addEventListener("ended", stop);
   } catch (error) {
     hint(error.name === "NotAllowedError" ? "Screen sharing was cancelled." : "Could not start capture: " + error.message);
@@ -109,3 +148,4 @@ $("connect").addEventListener("click", () => connect("sender"));
 $("receive").addEventListener("click", () => connect("receiver"));
 $("share").addEventListener("click", share);
 $("stop").addEventListener("click", stop);
+refreshSources();
