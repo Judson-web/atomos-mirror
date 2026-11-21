@@ -4,10 +4,12 @@ import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
+import android.os.IBinder
+import android.content.Context
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,15 +32,30 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
-    private var server: LocalReceiverServer? = null
-    private var signal: SignalServer? = null
-    private var nsdManager: NsdManager? = null
-    private var nsdRegistration: NsdManager.RegistrationListener? = null
+    private var receiverService: MirrorReceiverService? = null
+    private var bound = false
     private var shareWithMicrophone = false
+    private var pendingShareRequest = false
     private lateinit var projectionManager: MediaProjectionManager
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            receiverService = (binder as? MirrorReceiverService.LocalBinder)?.getService()
+            bound = true
+            if (pendingShareRequest && receiverService != null) {
+                pendingShareRequest = false
+                requestScreenCapture()
+            }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            receiverService = null
+            bound = false
+        }
+    }
+
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            val pin = signal?.pairingPin
+            val pin = receiverService?.pairingPin
             if (pin != null) {
                 val shareIntent = Intent(this, AndroidScreenShareService::class.java)
                     .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
@@ -65,58 +82,54 @@ class MainActivity : ComponentActivity() {
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
                     onShareAndroid = { withMicrophone ->
-                        if (signal == null) startReceiver()
                         shareWithMicrophone = withMicrophone
-                        if (withMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        else captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+                        if (receiverService == null) {
+                            pendingShareRequest = true
+                            startReceiver()
+                        } else requestScreenCapture()
                     },
                     onStopAndroid = { stopService(Intent(this, AndroidScreenShareService::class.java)) },
-                    addressProvider = { val http = server; val ws = signal; if (http != null && ws != null) "http://" + http.localAddress() + ":" + http.listeningPort + "\nPairing PIN: " + ws.pairingPin else "" }
+                    addressProvider = {
+                        receiverService?.let { "http://" + it.localAddress() + ":" + it.httpPort + "\nPairing PIN: " + it.pairingPin } ?: ""
+                    }
                 )
             }
         }
     }
 
-    private fun startReceiver() {
-        if (server?.isAlive == true && signal != null) return
-        try {
-            val signalling = SignalServer()
-            signalling.start()
-            signal = signalling
-            server = LocalReceiverServer(this, pairingPin = signalling.pairingPin).also { it.start() }
-            advertiseReceiver(signalling.pairingPin)
-        } catch (_: Exception) { server?.stop(); server = null; signal?.stop(); signal = null }
+    private fun requestScreenCapture() {
+        if (shareWithMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        else captureLauncher.launch(projectionManager.createScreenCaptureIntent())
     }
 
-    private fun advertiseReceiver(pin: String) {
-        val manager = getSystemService(NSD_SERVICE) as NsdManager
-        nsdManager = manager
-        val info = NsdServiceInfo().apply {
-            serviceName = "Atomos-Mirror"
-            serviceType = "_atomosmirror._tcp."
-            port = 8765
-            setAttribute("pin", pin)
-            setAttribute("signalPort", "8766")
-        }
-        val listener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {}
-            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
-            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
-            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
-        }
-        nsdRegistration = listener
-        try { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) } catch (_: Exception) {}
+    private fun startReceiver() {
+        val intent = Intent(this, MirrorReceiverService::class.java).setAction(MirrorReceiverService.ACTION_START)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+        if (!bound) bound = bindService(Intent(this, MirrorReceiverService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     private fun stopReceiver() {
+        pendingShareRequest = false
         stopService(Intent(this, AndroidScreenShareService::class.java))
-        try { nsdRegistration?.let { nsdManager?.unregisterService(it) } } catch (_: Exception) {}
-        nsdRegistration = null
-        server?.stop(); server = null; signal?.stop(); signal = null
+        stopService(Intent(this, MirrorReceiverService::class.java).setAction(MirrorReceiverService.ACTION_STOP))
+        if (bound) {
+            try { unbindService(serviceConnection) } catch (_: Exception) { }
+            bound = false
+        }
+        receiverService = null
     }
 
-    override fun onDestroy() { stopReceiver(); super.onDestroy() }
+    override fun onDestroy() {
+        // The receiver is deliberately not stopped here. Its foreground service owns
+        // the LAN servers and discovery lifecycle independently of this Activity.
+        if (bound) {
+            try { unbindService(serviceConnection) } catch (_: Exception) { }
+            bound = false
+        }
+        receiverService = null
+        super.onDestroy()
+    }
 }
 
 @Composable
@@ -183,7 +196,7 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: 
             FeatureLine("Android → Windows", "MediaProjection sender integrated, device test pending")
             FeatureLine("Microphone audio", "Optional, permission-gated")
             Spacer(Modifier.weight(1f))
-            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.4.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
+            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.5.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
         }
     }
 }
