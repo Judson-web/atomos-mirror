@@ -6,7 +6,7 @@ plugins {
 android {
  namespace = "com.atomos.mirror"
  compileSdk = 36
- defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 11; versionName = "1.2.0" }
+ defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 12; versionName = "1.2.1" }
  signingConfigs {
   create("release") {
    storeFile = file(System.getenv("ATOMOS_SIGNING_STORE_FILE") ?: "release.keystore")

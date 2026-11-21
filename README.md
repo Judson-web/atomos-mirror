@@ -1,6 +1,6 @@
 # Atomos Mirror
 
-**Version 1.2.0 · Android phone to laptop browser · Local Wi-Fi**
+**Version 1.2.1 · Android phone to laptop browser · Local Wi-Fi**
 
 Atomos Mirror mirrors an Android phone screen to a laptop browser. The Android app hosts a local dashboard, the laptop opens that page in a browser, and a one-time QR code pairs the two devices. There is no Windows companion, desktop installer, cloud account, or reverse laptop-to-phone mode.
 
