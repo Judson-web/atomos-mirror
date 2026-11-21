@@ -92,7 +92,7 @@ async function refreshSources() {
 $("source").addEventListener("change", () => window.atomos.selectSource($("source").value));
 $("refresh-sources").addEventListener("click", refreshSources);
 async function preparePairing(host) {
-  const cleanHost = host.trim().replace(/^https?:\\/\\//, "").replace(/\\/$/, "");
+  const cleanHost = host.trim().replace("http://", "").replace("https://", "").split("/")[0];
   if (!cleanHost) return hint("Enter or discover the Android receiver address first.");
   try {
     hint("Creating a short-lived pairing QR…");
