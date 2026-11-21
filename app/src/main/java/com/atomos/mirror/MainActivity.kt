@@ -1,6 +1,10 @@
 package com.atomos.mirror
 
 import android.os.Bundle
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -27,6 +31,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val pin = signal?.pairingPin
+                if (pin != null) {
+                    val shareIntent = Intent(this, AndroidScreenShareService::class.java)
+                        .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
+                        .putExtra(AndroidScreenShareService.EXTRA_PIN, pin)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(shareIntent) else startService(shareIntent)
+                }
+            }
+        }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFF86A9FF), background = Color(0xFF090D18),
@@ -35,6 +51,8 @@ class MainActivity : ComponentActivity() {
                 MirrorHome(
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
+                    onShareAndroid = { if (signal == null) startReceiver(); captureLauncher.launch(projectionManager.createScreenCaptureIntent()) },
+                    onStopAndroid = { startService(Intent(this, AndroidScreenShareService::class.java).setAction(AndroidScreenShareService.ACTION_STOP)) },
                     addressProvider = { val http = server; val ws = signal; if (http != null && ws != null) "http://" + http.localAddress() + ":" + http.listeningPort + "\nPairing PIN: " + ws.pairingPin else "" }
                 )
             }
@@ -51,13 +69,13 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) { server?.stop(); server = null; signal?.stop(); signal = null }
     }
 
-    private fun stopReceiver() { server?.stop(); server = null; signal?.stop(); signal = null }
+    private fun stopReceiver() { startService(Intent(this, AndroidScreenShareService::class.java).setAction(AndroidScreenShareService.ACTION_STOP)); server?.stop(); server = null; signal?.stop(); signal = null }
 
     override fun onDestroy() { stopReceiver(); super.onDestroy() }
 }
 
 @Composable
-private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, addressProvider: () -> String) {
+private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: () -> Unit, onStopAndroid: () -> Unit, addressProvider: () -> String) {
     var hosting by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf("") }
     LaunchedEffect(hosting) {
@@ -98,15 +116,20 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, addressProvider:
                     }
                 }
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(14.dp))
+            Button(onClick = onShareAndroid, enabled = hosting, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) { Text("Share this Android screen to Windows", fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onStopAndroid, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(14.dp)) { Text("Stop phone screen sharing") }
+            Spacer(Modifier.height(18.dp))
             Text("DEVELOPMENT ROADMAP", color = Color(0xFF8EAEFF), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
             Spacer(Modifier.height(8.dp))
             FeatureLine("Local receiver dashboard", "Implemented")
             FeatureLine("Automatic device discovery", "Next integration")
-            FeatureLine("WebRTC video and audio", "Streaming engine pending")
+            FeatureLine("Windows → Android", "Browser WebRTC receiver integrated")
+            FeatureLine("Android → Windows", "MediaProjection sender integrated, device test pending")
             FeatureLine("Internal audio + microphone", "Permission-aware capture pending")
             Spacer(Modifier.weight(1f))
-            Text("ATOMOS MIRROR  ·  EARLY DEVELOPMENT  ·  v0.1.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
+            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.3.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
         }
     }
 }
