@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atomos Mirror</title><link rel="stylesheet" href="styles.css"></head>
+<body><main>
+<header><div class="logo">A</div><div><h1>Atomos Mirror</h1><p>Windows desktop companion</p></div><span class="status" id="status">NOT CONNECTED</span></header>
+<section class="intro"><span class="eyebrow">LOCAL NETWORK · PRIVATE BY DESIGN</span><h2>Your desktop,<br><em>on your Android.</em></h2><p>Connect to the Atomos Mirror app on the same Wi-Fi network. Your screen and optional system audio travel directly over WebRTC.</p></section>
+<section class="panel">
+  <div class="fields"><label>Android receiver address<input id="host" placeholder="192.168.1.20" autocomplete="off"></label><label>Pairing PIN<input id="pin" placeholder="6-digit PIN" maxlength="6" inputmode="numeric"></label></div>
+  <div class="actions"><button id="connect">Connect to Android</button><button id="share" disabled>Share desktop</button><button id="stop" class="secondary" disabled>Stop sharing</button></div>
+  <p class="hint" id="hint">Start the receiver in the Android app, then enter its local IP address and pairing PIN.</p>
+</section>
+<section class="preview panel"><div class="preview-head"><b>Outgoing preview</b><span id="quality">Waiting for connection</span></div><video id="preview" autoplay muted playsinline></video></section>
+<footer>Direct local WebRTC connection · No cloud relay · Audio capture availability depends on Windows and device policies.</footer>
+</main><script src="renderer.js"></script></body></html>
