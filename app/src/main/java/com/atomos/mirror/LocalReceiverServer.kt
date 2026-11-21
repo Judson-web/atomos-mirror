@@ -8,13 +8,13 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /** Local-only HTTP dashboard hosted by the Android device. */
-class LocalReceiverServer(context: Context, port: Int = 8765, private val pairingPin: String = "------", private val peerSnapshot: () -> JSONArray = { JSONArray() }) : NanoHTTPD("0.0.0.0", port) {
+class LocalReceiverServer(context: Context, port: Int = 8765, private val peerSnapshot: () -> JSONArray = { JSONArray() }) : NanoHTTPD("0.0.0.0", port) {
     override fun serve(session: IHTTPSession): Response = when (session.uri) {
         "/api/status" -> newFixedLengthResponse(
             Response.Status.OK, "application/json; charset=utf-8",
             JSONObject().put("name", "Atomos Mirror").put("status", "online")
                 .put("host", localAddress()).put("port", listeningPort)
-                .put("signalPort", 8766).put("pairingPin", pairingPin)
+                .put("signalPort", 8766)
                 .put("devices", peerSnapshot()).put("deviceCount", peerSnapshot().length())
                 .put("transport", "local-webrtc").put("streamingReady", true).toString()
         )
@@ -60,7 +60,7 @@ video.autoplay=true;video.playsInline=true;video.controls=true;
 video.style.cssText='display:block;width:100%;max-height:65vh;background:#05080f;border-radius:14px;margin:18px 0;object-fit:contain';
 const main=document.querySelector('main');
 const panel=document.createElement('section');panel.style.cssText='background:#111a2b;border:1px solid #25324a;border-radius:20px;padding:20px;margin-top:18px';
-panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
+panel.innerHTML='<h3>Live desktop stream</h3><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><input id="am-pin-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Enter six-digit PIN" style="min-width:180px;flex:1;padding:12px;border-radius:10px;border:1px solid #34445f;background:#0b1322;color:#eef3ff"><button id="am-connect" class="copy" type="button">Connect receiver</button></div><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
 panel.appendChild(video);main.appendChild(panel);
 let amPreviousBytes=0,amPreviousFrames=0,amPreviousAt=0;
 function amMetric(id,value){const el=document.querySelector('#'+id);if(el)el.textContent=value}
@@ -84,10 +84,12 @@ async function amUpdateStats(){
 setInterval(amUpdateStats,1000);
 async function atomosReceiver(){
  const s=await (await fetch('/api/status',{cache:'no-store'})).json();
- let pin=document.querySelector('#am-pin');if(!pin){pin=document.createElement('p');pin.id='am-pin';pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';panel.insertBefore(pin,video)}pin.textContent='Pairing PIN: '+s.pairingPin;
+ const pairingPin=document.querySelector('#am-pin-input').value.trim();
+ if(!/^\\d{6}$/.test(pairingPin)){document.querySelector('#am-state').textContent='Enter the six-digit PIN shown in the Android app.';return}
+ if(ws && ws.readyState===WebSocket.OPEN)ws.close();
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
- ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
+ ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pin:pairingPin,name:'Android browser receiver'})};
  ws.onmessage=async e=>{
   const m=JSON.parse(e.data);
   if(m.type==='offer'){
@@ -100,11 +102,11 @@ async function atomosReceiver(){
   }else if(m.type==='ice'&&m.candidate&&pc){const c=new RTCIceCandidate(m.candidate);if(pc.remoteDescription)await pc.addIceCandidate(c);else iceQueue.push(c)}
   else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'}
   else if(m.type==='diagnostics')document.querySelector('#am-remote').textContent='Android sender · '+m.state+' · '+(m.bitrateBps>=0?(m.bitrateBps/1e6).toFixed(2)+' Mbps':'measuring')+' · '+(m.fps?Math.round(m.fps)+' FPS':'FPS unavailable')+' · '+(m.rttMs>=0?m.rttMs+' ms RTT':'RTT unavailable');
-  else if(m.type==='error')document.querySelector('#am-state').textContent=m.message;
+  else if(m.type==='error'){document.querySelector('#am-state').textContent=m.message;browserRetry=8;clearTimeout(browserRetryTimer)}
  };
- ws.onclose=()=>{document.querySelector('#am-state').textContent='Signalling disconnected · retrying';if(pc){pc.close();pc=null}video.srcObject=null;clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry=Math.min(browserRetry+1,8);browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)};
+ ws.onclose=()=>{if(pc){pc.close();pc=null}video.srcObject=null;if(browserRetry<8){document.querySelector('#am-state').textContent='Signalling disconnected · retrying';clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry++;browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)}else{document.querySelector('#am-state').textContent='Disconnected. Check the PIN and reconnect.'}};
 }
-atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message);
+document.querySelector('#am-connect').addEventListener('click',()=>{browserRetry=0;atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message)});
         </script>
         """.trimIndent()
     }
