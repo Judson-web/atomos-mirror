@@ -24,10 +24,10 @@ jobs:
       - name: Prepare Android release signing
         shell: bash
         env:
-          ANDROID_KEYSTORE_BASE64: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/atomos-signing"
@@ -97,7 +97,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: atomos-mirror-android-signing-material
-          path: \${{ runner.temp }}/atomos-android-signing-material.zip
+          path: ${{ runner.temp }}/atomos-android-signing-material.zip
           retention-days: 7
 
   windows-release:
@@ -119,8 +119,8 @@ jobs:
       - name: Prepare Windows code-signing certificate
         shell: pwsh
         env:
-          WINDOWS_CERT_PFX_BASE64: \${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          WINDOWS_CERT_PASSWORD: \${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
           $ErrorActionPreference = "Stop"
           $signDir = Join-Path $env:RUNNER_TEMP "atomos-signing"
@@ -145,11 +145,11 @@ jobs:
             New-Item -ItemType Directory -Force -Path $materialDir | Out-Null
             Copy-Item $pfxPath $materialDir
             Copy-Item $cerPath $materialDir
-            @"
-          KEEP THESE FILES PRIVATE. This is the signing identity for the internal test installer.
-          WINDOWS_CERT_PASSWORD=$password
-          WINDOWS_CERT_PFX_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($pfxPath)))
-          "@ | Set-Content -Path (Join-Path $materialDir "windows-signing-secrets.txt")
+            @(
+              "KEEP THESE FILES PRIVATE. This is the signing identity for the internal test installer."
+              "WINDOWS_CERT_PASSWORD=$password"
+              "WINDOWS_CERT_PFX_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($pfxPath)))"
+            ) | Set-Content -Path (Join-Path $materialDir "windows-signing-secrets.txt")
             Compress-Archive -Path (Join-Path $materialDir "*") -DestinationPath (Join-Path $env:RUNNER_TEMP "atomos-windows-signing-material.zip") -Force
             "WINDOWS_SIGNING_MATERIAL=generated" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
@@ -191,5 +191,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: atomos-mirror-windows-signing-material
-          path: \${{ runner.temp }}/atomos-windows-signing-material.zip
+          path: ${{ runner.temp }}/atomos-windows-signing-material.zip
           retention-days: 7
