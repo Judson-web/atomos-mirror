@@ -22,6 +22,7 @@ class AndroidScreenSender(
     private var textureHelper: SurfaceTextureHelper? = null
     private var egl: EglBase? = null
     private var socket: WebSocketClient? = null
+    private val pendingRemoteIce = java.util.concurrent.ConcurrentLinkedQueue<IceCandidate>()
     @Volatile private var stopped = false
 
     fun start() {
@@ -81,11 +82,14 @@ class AndroidScreenSender(
                     when (json.optString("type")) {
                         "joined" -> createOffer()
                         "answer" -> peer?.setRemoteDescription(object : SdpObserverAdapter() {
-                            override fun onSetSuccess() {}
+                            override fun onSetSuccess() {
+                                while (pendingRemoteIce.isNotEmpty()) peer?.addIceCandidate(pendingRemoteIce.poll())
+                            }
                         }, SessionDescription(SessionDescription.Type.ANSWER, json.getJSONObject("description").getString("sdp")))
                         "ice" -> {
                             val c = json.getJSONObject("candidate")
-                            peer?.addIceCandidate(IceCandidate(c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate")))
+                            val candidate = IceCandidate(c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate"))
+                            if (peer?.remoteDescription != null) peer?.addIceCandidate(candidate) else pendingRemoteIce.add(candidate)
                         }
                     }
                 } catch (_: Exception) { }
