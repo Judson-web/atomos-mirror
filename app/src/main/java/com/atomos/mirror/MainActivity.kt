@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,6 +32,8 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     private var server: LocalReceiverServer? = null
     private var signal: SignalServer? = null
+    private var nsdManager: NsdManager? = null
+    private var nsdRegistration: NsdManager.RegistrationListener? = null
     private var shareWithMicrophone = false
     private lateinit var projectionManager: MediaProjectionManager
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -81,10 +85,36 @@ class MainActivity : ComponentActivity() {
             signalling.start()
             signal = signalling
             server = LocalReceiverServer(this, pairingPin = signalling.pairingPin).also { it.start() }
+            advertiseReceiver(signalling.pairingPin)
         } catch (_: Exception) { server?.stop(); server = null; signal?.stop(); signal = null }
     }
 
-    private fun stopReceiver() { stopService(Intent(this, AndroidScreenShareService::class.java)); server?.stop(); server = null; signal?.stop(); signal = null }
+    private fun advertiseReceiver(pin: String) {
+        val manager = getSystemService(NSD_SERVICE) as NsdManager
+        nsdManager = manager
+        val info = NsdServiceInfo().apply {
+            serviceName = "Atomos-Mirror"
+            serviceType = "_atomosmirror._tcp."
+            port = 8765
+            setAttribute("pin", pin)
+            setAttribute("signalPort", "8766")
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {}
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+        }
+        nsdRegistration = listener
+        try { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) } catch (_: Exception) {}
+    }
+
+    private fun stopReceiver() {
+        stopService(Intent(this, AndroidScreenShareService::class.java))
+        try { nsdRegistration?.let { nsdManager?.unregisterService(it) } } catch (_: Exception) {}
+        nsdRegistration = null
+        server?.stop(); server = null; signal?.stop(); signal = null
+    }
 
     override fun onDestroy() { stopReceiver(); super.onDestroy() }
 }
