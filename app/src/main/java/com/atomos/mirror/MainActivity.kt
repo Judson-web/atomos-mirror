@@ -178,12 +178,12 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: 
             Text("DEVELOPMENT ROADMAP", color = Color(0xFF8EAEFF), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
             Spacer(Modifier.height(8.dp))
             FeatureLine("Local receiver dashboard", "Implemented")
-            FeatureLine("Automatic device discovery", "Next integration")
+            FeatureLine("Automatic device discovery", "mDNS receiver advertisement enabled")
             FeatureLine("Windows → Android", "Browser WebRTC receiver integrated")
             FeatureLine("Android → Windows", "MediaProjection sender integrated, device test pending")
-            FeatureLine("Internal audio + microphone", "Permission-aware capture pending")
+            FeatureLine("Microphone audio", "Optional, permission-gated")
             Spacer(Modifier.weight(1f))
-            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.3.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
+            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.4.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
         }
     }
 }
