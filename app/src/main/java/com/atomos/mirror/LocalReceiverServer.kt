@@ -60,8 +60,28 @@ video.autoplay=true;video.playsInline=true;video.controls=true;
 video.style.cssText='display:block;width:100%;max-height:65vh;background:#05080f;border-radius:14px;margin:18px 0;object-fit:contain';
 const main=document.querySelector('main');
 const panel=document.createElement('section');panel.style.cssText='background:#111a2b;border:1px solid #25324a;border-radius:20px;padding:20px;margin-top:18px';
-panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p>';
+panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
 panel.appendChild(video);main.appendChild(panel);
+let amPreviousBytes=0,amPreviousAt=0;
+function amMetric(id,value){const el=document.querySelector('#'+id);if(el)el.textContent=value}
+async function amUpdateStats(){
+ if(!pc){amMetric('am-bitrate','—');amMetric('am-fps','—');amMetric('am-loss','—');amMetric('am-rtt','—');return}
+ try{
+  const report=await pc.getStats();let bytes=0,fps=0,lost=0,received=0,rtt=null;
+  report.forEach(s=>{
+   if(s.type==='inbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesReceived||0;fps=s.framesPerSecond||s.framesDecoded||fps;lost+=s.packetsLost||0;received+=s.packetsReceived||0}
+   if(s.type==='outbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesSent||0;fps=s.framesPerSecond||s.framesEncoded||fps}
+   if(s.type==='candidate-pair'&&s.state==='succeeded'&&(s.nominated||s.selected))rtt=s.currentRoundTripTime??rtt
+  });
+  const now=performance.now(),rate=amPreviousAt&&now>amPreviousAt?Math.max(0,(bytes-amPreviousBytes)*8/((now-amPreviousAt)/1000)):null;
+  amPreviousBytes=bytes;amPreviousAt=now;
+  amMetric('am-bitrate',rate==null?'Measuring…':rate>=1e6?(rate/1e6).toFixed(2)+' Mbps':Math.round(rate/1000)+' kbps');
+  amMetric('am-fps',fps?Math.round(fps)+' FPS':'—');
+  amMetric('am-loss',received+lost?((lost/(received+lost))*100).toFixed(2)+'%':'—');
+  amMetric('am-rtt',rtt==null?'—':Math.round(rtt*1000)+' ms');
+ }catch(e){amMetric('am-remote','Stats unavailable: '+e.message)}
+}
+setInterval(amUpdateStats,1000);
 async function atomosReceiver(){
  const s=await (await fetch('/api/status',{cache:'no-store'})).json();
  let pin=document.querySelector('#am-pin');if(!pin){pin=document.createElement('p');pin.id='am-pin';pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';panel.insertBefore(pin,video)}pin.textContent='Pairing PIN: '+s.pairingPin;
@@ -79,6 +99,7 @@ async function atomosReceiver(){
    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);send({type:'answer',description:pc.localDescription});
   }else if(m.type==='ice'&&m.candidate&&pc){const c=new RTCIceCandidate(m.candidate);if(pc.remoteDescription)await pc.addIceCandidate(c);else iceQueue.push(c)}
   else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'}
+  else if(m.type==='diagnostics')document.querySelector('#am-remote').textContent='Android sender · '+m.state+' · '+(m.bitrateBps>=0?(m.bitrateBps/1e6).toFixed(2)+' Mbps':'measuring')+' · '+(m.fps?Math.round(m.fps)+' FPS':'FPS unavailable')+' · '+(m.rttMs>=0?m.rttMs+' ms RTT':'RTT unavailable');
   else if(m.type==='error')document.querySelector('#am-state').textContent=m.message;
  };
  ws.onclose=()=>{document.querySelector('#am-state').textContent='Signalling disconnected · retrying';if(pc){pc.close();pc=null}video.srcObject=null;clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry=Math.min(browserRetry+1,8);browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)};
