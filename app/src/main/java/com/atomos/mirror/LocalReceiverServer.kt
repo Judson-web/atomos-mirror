@@ -8,15 +8,15 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /** Local-only HTTP dashboard hosted by the Android device. */
-class LocalReceiverServer(context: Context, port: Int = 8765, private val pairingPin: String = "------") : NanoHTTPD("0.0.0.0", port) {
+class LocalReceiverServer(context: Context, port: Int = 8765, private val pairingPin: String = "------", private val peerSnapshot: () -> JSONArray = { JSONArray() }) : NanoHTTPD("0.0.0.0", port) {
     override fun serve(session: IHTTPSession): Response = when (session.uri) {
         "/api/status" -> newFixedLengthResponse(
             Response.Status.OK, "application/json; charset=utf-8",
             JSONObject().put("name", "Atomos Mirror").put("status", "online")
                 .put("host", localAddress()).put("port", listeningPort)
                 .put("signalPort", 8766).put("pairingPin", pairingPin)
-                .put("devices", JSONArray()).put("transport", "local-webrtc")
-                .put("streamingReady", true).toString()
+                .put("devices", peerSnapshot()).put("deviceCount", peerSnapshot().length())
+                .put("transport", "local-webrtc").put("streamingReady", true).toString()
         )
         "/health" -> newFixedLengthResponse(Response.Status.OK, "text/plain", "ok")
         "/", "/index.html" -> newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", DASHBOARD)
@@ -49,10 +49,10 @@ main{max-width:1050px;margin:auto;padding:42px 24px}.top{display:flex;align-item
 .hero{margin:64px 0 34px}.eyebrow{color:#8eafff;text-transform:uppercase;letter-spacing:2px;font-size:11px;font-weight:700}.hero h2{font-size:clamp(34px,6vw,58px);letter-spacing:-2px;line-height:1.05;margin:14px 0}.hero p{max-width:600px;color:#9eabc2;line-height:1.7}.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:18px}.panel{background:#111a2b;border:1px solid #25324a;border-radius:22px;padding:24px;box-shadow:0 20px 70px #0003}.panel h3{margin:0 0 18px;font-size:16px}.empty{border:1px dashed #34445f;border-radius:16px;padding:34px 18px;text-align:center;color:#9eabc2}.glyph{font-size:34px;margin-bottom:12px}.address{font:600 19px ui-monospace,monospace;overflow-wrap:anywhere;color:#c8d8ff;margin:12px 0}.copy{border:0;border-radius:12px;padding:11px 15px;background:#456eea;color:white;font-weight:700;cursor:pointer}.stat{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #26334a;color:#aab6ca}.stat b{color:#f0f4ff}footer{margin-top:28px;color:#66758f;font-size:12px;line-height:1.7}@media(max-width:700px){main{padding:24px 16px}.grid{grid-template-columns:1fr}.hero{margin:48px 0 26px}}
 </style></head><body><main><header class="top"><div class="brand"><div class="logo">A</div><div><h1>Atomos Mirror</h1><small>Local receiver</small></div></div><span class="pill">● LOCAL SERVER</span></header>
 <section class="hero"><div class="eyebrow">Your devices, one screen</div><h2>Connect. Mirror.<br>Stay in control.</h2><p>This receiver is running directly from your Android device. Connect another device to the same Wi-Fi network and use Atomos Mirror to discover this receiver.</p></section>
-<section class="grid"><article class="panel"><h3>Connection list <span class="muted" id="count">· 0 devices</span></h3><div class="empty"><div class="glyph">⌁</div><b>No devices connected</b><p class="muted">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p></div></article>
+<section class="grid"><article class="panel"><h3>Connection list <span class="muted" id="count">· 0 devices</span></h3><div id="device-list" class="empty"><div class="glyph">⌁</div><b>No devices connected</b><p class="muted">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p></div></article>
 <aside class="panel"><h3>Receiver details</h3><div class="stat"><span>Network</span><b>Local Wi-Fi</b></div><div class="stat"><span>Server</span><b id="server">Starting…</b></div><div class="stat"><span>Media stream</span><b>Not connected</b></div><div class="address" id="address">Loading address…</div><button class="copy" onclick="navigator.clipboard?.writeText(location.href)">Copy receiver address</button></aside></section>
 <footer>Private local-network dashboard · Served by your Android device · No cloud account required.<br>Pairing uses your six-digit PIN. Media travels directly between devices over WebRTC.</footer></main>
-<script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices'}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);</script></body></html>
+<script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices';const list=document.querySelector('#device-list');if(s.devices.length){list.className='';list.innerHTML=s.devices.map(d=>'<div class=\"stat\"><span>'+String(d.name).replace(/[&<>\"']/g,'')+' · '+d.role+'</span><b>● Connected</b></div>').join('')}else{list.className='empty';list.innerHTML='<div class=\"glyph\">⌁</div><b>No devices connected</b><p class=\"muted\">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p>'}}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);</script></body></html>
         <script>
 let pc=null,ws=null,iceQueue=[];
 const video=document.createElement('video');
@@ -67,7 +67,7 @@ async function atomosReceiver(){
  const pin=document.createElement('p');pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';pin.textContent='Pairing PIN: '+s.pairingPin;panel.insertBefore(pin,video);
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
- ws.onopen=()=>send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'});
+ ws.onopen=()=>{retry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
  ws.onmessage=async e=>{
   const m=JSON.parse(e.data);
   if(m.type==='offer'){
@@ -81,7 +81,7 @@ async function atomosReceiver(){
   else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'};
   else if(m.type==='error')document.querySelector('#am-state').textContent=m.message;
  };
- ws.onclose=()=>document.querySelector('#am-state').textContent='Signalling disconnected';
+ let retry=0,retryTimer=null;ws.onclose=()=>{document.querySelector('#am-state').textContent='Signalling disconnected · retrying';if(pc){pc.close();pc=null}video.srcObject=null;clearTimeout(retryTimer);retryTimer=setTimeout(()=>{retry=Math.min(retry+1,8);atomosReceiver().catch(()=>{})},Math.min(1000*Math.pow(2,retry),20000))};ws.onopen=()=>{retry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
 }
 atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message);
         </script>
