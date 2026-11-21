@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) { server?.stop(); server = null; signal?.stop(); signal = null }
     }
 
-    private fun stopReceiver() { startService(Intent(this, AndroidScreenShareService::class.java).setAction(AndroidScreenShareService.ACTION_STOP)); server?.stop(); server = null; signal?.stop(); signal = null }
+    private fun stopReceiver() { stopService(Intent(this, AndroidScreenShareService::class.java)); server?.stop(); server = null; signal?.stop(); signal = null }
 
     override fun onDestroy() { stopReceiver(); super.onDestroy() }
 }
