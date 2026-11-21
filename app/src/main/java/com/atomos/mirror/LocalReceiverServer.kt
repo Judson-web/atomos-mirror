@@ -191,6 +191,7 @@ async function playPcm(buffer){
 }
 async function connectReceiver(){
  try{
+  await ensureAudio();
   const approval=await fetch('/api/pairing/session',{cache:'no-store'});const pairing=await approval.json();
   if(!approval.ok||!pairing.token)throw new Error('Scan the current QR with the Android app first.');
   const status=await (await fetch('/api/status',{cache:'no-store'})).json();
