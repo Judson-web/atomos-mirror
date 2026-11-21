@@ -35,13 +35,13 @@ async function updateDiagnostics() {
   }
   try {
     const report = await current.getStats();
-    let bytes = 0, fps = 0, lost = 0, received = 0, rtt = null, codec = "";
+    let bytes = 0, fps = 0, frames = 0, lost = 0, received = 0, rtt = null, codec = "";
     report.forEach(stat => {
       if (stat.type === "outbound-rtp" && !stat.isRemote && (stat.kind === "video" || stat.mediaType === "video")) {
-        bytes += stat.bytesSent || 0; fps = stat.framesPerSecond || stat.framesEncoded || fps;
+        bytes += stat.bytesSent || 0; fps = stat.framesPerSecond || fps; frames += stat.framesEncoded || 0;
       }
       if (stat.type === "inbound-rtp" && (stat.kind === "video" || stat.mediaType === "video")) {
-        bytes += stat.bytesReceived || 0; fps = stat.framesPerSecond || stat.framesDecoded || fps;
+        bytes += stat.bytesReceived || 0; fps = stat.framesPerSecond || fps; frames += stat.framesDecoded || 0;
         lost += stat.packetsLost || 0; received += stat.packetsReceived || 0;
       }
       if (stat.type === "candidate-pair" && (stat.state === "succeeded") && (stat.nominated || stat.selected)) rtt = stat.currentRoundTripTime ?? rtt;
@@ -49,12 +49,13 @@ async function updateDiagnostics() {
     });
     const now = performance.now();
     let rate = null;
-    if (previousStats && previousStatsAt && now > previousStatsAt) rate = Math.max(0, (bytes - previousStats.bytes) * 8 / ((now - previousStatsAt) / 1000));
-    previousStats = { bytes }; previousStatsAt = now;
+    let intervalFps = fps;
+    if (previousStats && previousStatsAt && now > previousStatsAt) { const seconds=(now-previousStatsAt)/1000; rate = Math.max(0, (bytes - previousStats.bytes) * 8 / seconds); if (!intervalFps) intervalFps=Math.max(0,(frames-previousStats.frames)/seconds); }
+    previousStats = { bytes, frames }; previousStatsAt = now;
     const state = current.connectionState || current.iceConnectionState || "unknown";
     diag("diag-state", state.toUpperCase());
     diag("diag-bitrate", rate == null ? "Measuring…" : (rate >= 1000000 ? (rate / 1000000).toFixed(2) + " Mbps" : Math.round(rate / 1000) + " kbps"));
-    diag("diag-fps", fps ? Math.round(fps) + " FPS" : "—");
+    diag("diag-fps", intervalFps ? Math.round(intervalFps) + " FPS" : "—");
     diag("diag-loss", received + lost ? ((lost / (received + lost)) * 100).toFixed(2) + "%" : "—");
     diag("diag-rtt", rtt == null ? "—" : Math.round(rtt * 1000) + " ms");
     diag("diag-advice", explainConnection(state, current.iceConnectionState) + (codec ? " Codec: " + codec + "." : ""));
