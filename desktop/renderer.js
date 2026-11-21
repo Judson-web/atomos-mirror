@@ -100,8 +100,7 @@ $("discover").addEventListener("click", async () => {
     else {
       const d = devices[0];
       $("host").value = d.host;
-      if (d.pin) $("pin").value = d.pin;
-      hint("Found " + d.name + " at " + d.host + ". Pairing details filled in.");
+      hint("Found " + d.name + " at " + d.host + ". Enter the six-digit PIN shown on the Android device.");
     }
   } catch (error) { hint("Discovery failed: " + error.message); }
   finally { $("discover").disabled = false; }
