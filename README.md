@@ -37,11 +37,12 @@ Verify checksums after extracting the release artifact:
 
 1. Download Atomos-Mirror-Android-v1.0.0.apk to the phone.
 2. Open the APK. If Android asks, allow the browser or file manager to install unknown apps for this installation.
-3. Install and open **Atomos Mirror**.
-4. Connect the phone to the same Wi-Fi network as the Windows PC.
-5. In Atomos Mirror, start the receiver/hosting service.
-6. Keep the app's displayed local URL and six-digit pairing PIN available. The URL normally resembles http://192.168.x.x:8765.
-7. Do not share the PIN with devices you do not intend to pair.
+3. If you are upgrading from an earlier debug APK, uninstall that debug build first. Debug and release APKs use different signing certificates, so Android will not install the release APK over the debug one. This first transition can reset app preferences.
+4. Install and open **Atomos Mirror**.
+5. Connect the phone to the same Wi-Fi network as the Windows PC.
+6. In Atomos Mirror, start the receiver/hosting service.
+7. Keep the app's displayed local URL and six-digit pairing PIN available. The URL normally resembles http://192.168.x.x:8765.
+8. Do not share the PIN with devices you do not intend to pair.
 
 The Android app hosts the web dashboard itself. It is not a website hosted on the public internet.
 
@@ -156,7 +157,26 @@ Do not use Atomos Mirror on an untrusted public Wi-Fi network. The PIN is a pair
 - Some Android vendors apply aggressive battery restrictions. Set Atomos Mirror to unrestricted battery use during testing if the OS is stopping its foreground service.
 - Android internal playback audio capture is not implemented yet. Optional microphone capture is separate.
 
-## 10. Known limitations before public production
+## 10. Real-device test checklist
+
+Use a normal private Wi-Fi network first, with VPNs disabled. Record the phone model, Android version, Windows version, router/AP, selected resolution/FPS/bitrate and the diagnostics shown during each run.
+
+- [ ] Install the signed APK and Windows installer from the same successful workflow run.
+- [ ] Confirm Android receiver starts and the local dashboard opens from the phone.
+- [ ] Confirm mDNS discovery and manual-IP pairing both work.
+- [ ] Stream Windows → Android for at least 15 minutes at 720p/30 FPS.
+- [ ] Stream Android → Windows for at least 15 minutes at 720p/30 FPS.
+- [ ] Repeat at 1080p/30 FPS and compare bitrate, FPS, packet loss and RTT.
+- [ ] Stop and restart each direction without restarting either device.
+- [ ] Disconnect and reconnect Wi-Fi, then verify recovery or a clear reconnect path.
+- [ ] Test Android app backgrounding, screen lock and battery restrictions.
+- [ ] Test Windows Firewall with Private-network permission and confirm Public-network access is not required.
+- [ ] Check audio separately: Android microphone and Windows loopback. Android internal playback audio is not implemented.
+- [ ] Test a second router/AP if available, especially one with client isolation or guest networking.
+
+Do not mark a test as passed unless it was observed on the actual phone and PC. CI success proves the build and source-level tests passed, not that the wireless stream was validated on every device.
+
+## 11. Known limitations before public production
 
 - Android internal playback audio capture is not implemented. Optional microphone capture is available.
 - Windows system-audio loopback depends on Windows/Electron support and may not work on every PC.
@@ -167,7 +187,7 @@ Do not use Atomos Mirror on an untrusted public Wi-Fi network. The PIN is a pair
 - The Android release is signed, but the first-run test key is self-generated unless a persistent release keystore is configured.
 - The first-run Windows installer is Authenticode-signed with a self-signed test certificate unless a persistent code-signing PFX is configured.
 
-## 11. Preserve the signing identities
+## 12. Preserve the signing identities
 
 **Important:** Android will reject an in-place update if the new APK is signed with a different key. Keep the Android keystore and passwords backed up securely. Never regenerate them after distributing the APK.
 
@@ -194,7 +214,7 @@ Paste each result into the matching GitHub secret. Never paste private keys or p
 
 For a publicly distributed Windows application, use a trusted Authenticode certificate rather than the self-signed test certificate. Keep the PFX private and protect it with a strong password.
 
-## 12. Build from source
+## 13. Build from source
 
 ### Android
 Requirements: JDK 17, Android SDK 36, Gradle 8.13.
@@ -221,7 +241,7 @@ From the desktop directory, run:
 
 A signed Windows build requires CSC_LINK to point to a PFX file and CSC_KEY_PASSWORD to contain its password. The signed-release GitHub Actions workflow configures these automatically.
 
-## 13. Release workflow
+## 14. Release workflow
 
 The **Signed Release Candidate** workflow runs on pushes to main and can also be started manually from the Actions tab. It builds and verifies a signed Android release APK, runs desktop regression tests, builds the Authenticode-signed Windows installer, and uploads the outputs as versioned Actions artifacts.
 
