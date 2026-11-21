@@ -85,9 +85,10 @@ setInterval(amUpdateStats,1000);
 async function atomosReceiver(){
  const s=await (await fetch('/api/status',{cache:'no-store'})).json();
  const pairingPin=document.querySelector('#am-pin-input').value.trim();
- if(!/^\\d{6}$/.test(pairingPin)){document.querySelector('#am-state').textContent='Enter the six-digit PIN shown in the Android app.';return}
+ if(!/^\d{6}$/.test(pairingPin)){document.querySelector('#am-state').textContent='Enter the six-digit PIN shown in the Android app.';return}
  if(ws && ws.readyState===WebSocket.OPEN)ws.close();
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
+ const activeSocket=ws;
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
  ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pin:pairingPin,name:'Android browser receiver'})};
  ws.onmessage=async e=>{
@@ -104,7 +105,7 @@ async function atomosReceiver(){
   else if(m.type==='diagnostics')document.querySelector('#am-remote').textContent='Android sender · '+m.state+' · '+(m.bitrateBps>=0?(m.bitrateBps/1e6).toFixed(2)+' Mbps':'measuring')+' · '+(m.fps?Math.round(m.fps)+' FPS':'FPS unavailable')+' · '+(m.rttMs>=0?m.rttMs+' ms RTT':'RTT unavailable');
   else if(m.type==='error'){document.querySelector('#am-state').textContent=m.message;browserRetry=8;clearTimeout(browserRetryTimer)}
  };
- ws.onclose=()=>{if(pc){pc.close();pc=null}video.srcObject=null;if(browserRetry<8){document.querySelector('#am-state').textContent='Signalling disconnected · retrying';clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry++;browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)}else{document.querySelector('#am-state').textContent='Disconnected. Check the PIN and reconnect.'}};
+ ws.onclose=()=>{if(ws!==activeSocket)return;if(pc){pc.close();pc=null}video.srcObject=null;if(browserRetry<8){document.querySelector('#am-state').textContent='Signalling disconnected · retrying';clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry++;browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)}else{document.querySelector('#am-state').textContent='Disconnected. Check the PIN and reconnect.'}};
 }
 document.querySelector('#am-connect').addEventListener('click',()=>{browserRetry=0;atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message)});
         </script>
