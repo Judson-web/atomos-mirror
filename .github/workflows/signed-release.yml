@@ -87,13 +87,13 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           mkdir -p release-output
-          cp "$APK" "release-output/Atomos-Mirror-Android-v1.0.0.apk"
+          cp "$APK" "release-output/Atomos-Mirror-Android-v1.1.0.apk"
           sha256sum release-output/*.apk > release-output/SHA256SUMS.txt
           echo "Android APK signature verified by apksigner."
       - name: Upload signed Android release
         uses: actions/upload-artifact@v4
         with:
-          name: atomos-mirror-android-v1.0.0
+          name: atomos-mirror-android-v1.1.0
           path: release-output/*
           retention-days: 30
       - name: Upload first-run Android signing material
@@ -184,7 +184,7 @@ jobs:
       - name: Upload signed Windows release
         uses: actions/upload-artifact@v4
         with:
-          name: atomos-mirror-windows-v1.0.0
+          name: atomos-mirror-windows-v1.1.0
           path: |
             desktop/dist/*.exe
             desktop/dist/*.cer

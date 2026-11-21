@@ -17,7 +17,7 @@ import kotlin.math.min
 class AndroidScreenSender(
     private val context: Context,
     private val projectionData: Intent,
-    private val pairingPin: String,
+    private val pairingToken: String,
     private val microphoneEnabled: Boolean = false
 ) {
     private var factory: PeerConnectionFactory? = null
@@ -113,7 +113,7 @@ class AndroidScreenSender(
                 reconnectAttempts = 0
                 reconnectPending.set(false)
                 send(JSONObject().put("type", "hello").put("role", "sender")
-                    .put("pin", pairingPin).put("name", "Android phone"))
+                    .put("pairingToken", pairingToken).put("name", "Android phone"))
             }
             override fun onMessage(message: String) {
                 try {

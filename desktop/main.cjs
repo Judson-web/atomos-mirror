@@ -1,8 +1,13 @@
 const { app, BrowserWindow, desktopCapturer, session, ipcMain } = require("electron");
 const path = require("node:path");
 const { Bonjour } = require("bonjour-service");
+const QRCode = require("qrcode");
 
 let selectedSourceId = null;
+ipcMain.handle("atomos:generate-qr", async (_event, payload) => {
+  if (typeof payload !== "string" || payload.length > 4096) throw new Error("Invalid pairing payload");
+  return QRCode.toDataURL(payload, { width: 360, margin: 2, errorCorrectionLevel: "M" });
+});
 ipcMain.handle("atomos:discover", async () => {
   const bonjour = new Bonjour();
   const found = new Map();

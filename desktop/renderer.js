@@ -91,6 +91,32 @@ async function refreshSources() {
 }
 $("source").addEventListener("change", () => window.atomos.selectSource($("source").value));
 $("refresh-sources").addEventListener("click", refreshSources);
+async function preparePairing(host) {
+  const cleanHost = host.trim().replace("http://", "").replace("https://", "").split("/")[0];
+  if (!cleanHost) return hint("Enter or discover the Android receiver address first.");
+  try {
+    hint("Creating a short-lived pairing QR…");
+    const response = await fetch("http://" + cleanHost + ":8765/api/pairing/challenge", { cache: "no-store" });
+    if (!response.ok) throw new Error("Android receiver returned HTTP " + response.status);
+    const challenge = await response.json();
+    if (challenge.type !== "atomos-pair" || !challenge.token || !challenge.signalPort)
+      throw new Error("The receiver returned an invalid pairing challenge.");
+    lastPairing = { host: cleanHost, token: challenge.token, signalPort: challenge.signalPort,
+      httpPort: challenge.httpPort || 8765, expiresAt: challenge.expiresAt };
+    const image = await window.atomos.generateQr(JSON.stringify(challenge));
+    $("pairing-qr-image").src = image;
+    $("pairing-qr-image").style.display = "block";
+    $("pairing-state").textContent = "QR ready. Open Pair in the Android app and scan it now.";
+    hint("QR generated. Scan it in the Android app, then choose a mirroring direction.");
+    return true;
+  } catch (error) {
+    lastPairing = null;
+    $("pairing-qr-image").style.display = "none";
+    $("pairing-state").textContent = "Could not generate QR.";
+    hint("Pairing setup failed: " + error.message + ". Check the Wi-Fi address and local network.");
+    return false;
+  }
+}
 $("discover").addEventListener("click", async () => {
   $("discover").disabled = true;
   hint("Searching the local Wi-Fi network for Atomos Mirror…");
@@ -100,34 +126,49 @@ $("discover").addEventListener("click", async () => {
     else {
       const d = devices[0];
       $("host").value = d.host;
-      hint("Found " + d.name + " at " + d.host + ". Enter the six-digit PIN shown on the Android device.");
+      await preparePairing(d.host);
     }
   } catch (error) { hint("Discovery failed: " + error.message); }
   finally { $("discover").disabled = false; }
 });
-
+$("generate-pairing").addEventListener("click", () => preparePairing($("host").value));
 async function connect(role = "sender", retry = false) {
   activeRole = role;
-  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const pin = retry && lastPairing ? lastPairing.pin : $("pin").value.trim();
-  if (!host || !/^\d{6}$/.test(pin)) return hint("Enter the Android local IP address and its six-digit pairing PIN.");
+  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace("http://", "").replace("https://", "").split("/")[0];
+  if (!host) return hint("Find the Android receiver or enter its local network address.");
   if (!retry) {
+    if (!lastPairing || lastPairing.host !== host || Date.now() > lastPairing.expiresAt) {
+      const ready = await preparePairing(host);
+      if (ready) hint("Scan the QR with the Atomos Android app first, then press this connection button again.");
+      return;
+    }
+    try {
+      const approvalResponse = await fetch("http://" + host + ":" + lastPairing.httpPort + "/api/pairing/session", { cache: "no-store" });
+      const approval = await approvalResponse.json();
+      if (!approvalResponse.ok || approval.token !== lastPairing.token) {
+        hint("Waiting for approval. Scan the QR in the Atomos Android app, then try again.");
+        return;
+      }
+    } catch (error) {
+      hint("Could not verify phone approval: " + error.message);
+      return;
+    }
     reconnectEnabled = true;
     reconnectAttempts = 0;
-    lastPairing = { host, pin };
     if (socket) { const old = socket; socket = null; old.close(); }
     if (peer) peer.close();
     peer = null;
     pendingCandidates = [];
   }
   clearTimeout(reconnectTimer);
-  const ws = new WebSocket("ws://" + host + ":8766");
+  const ws = new WebSocket("ws://" + host + ":" + lastPairing.signalPort);
   socket = ws;
   status(retry ? "Reconnecting" : "Connecting");
   ws.onopen = () => {
     reconnectAttempts = 0;
-    ws.send(JSON.stringify({ type: "hello", role, pin, name: role === "sender" ? "Windows desktop sender" : "Windows desktop receiver" }));
-    hint(retry ? "Signalling restored. Rejoining the local session…" : "Connecting to the local Atomos Mirror session…");
+    ws.send(JSON.stringify({ type: "hello", role, pairingToken: lastPairing.token,
+      name: role === "sender" ? "Windows desktop sender" : "Windows desktop receiver" }));
+    hint(retry ? "Signalling restored. Rejoining the local session…" : "Connecting to the approved Atomos Mirror session…");
   };
   ws.onmessage = async event => {
     if (ws !== socket) return;
@@ -192,7 +233,7 @@ async function connect(role = "sender", retry = false) {
     } else if (message.type === "error") {
       hint(message.message || "Pairing failed.");
       status("Pairing failed");
-      if (/PIN/i.test(message.message || "")) reconnectEnabled = false;
+      if (/QR|approved|expired/i.test(message.message || "")) reconnectEnabled = false;
     } else if (message.type === "peer" && message.state === "joined") {
       hint((message.name || "A device") + " joined the session.");
       if (role === "sender" && stream) await negotiateDesktopStream();

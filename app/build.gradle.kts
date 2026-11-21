@@ -6,7 +6,7 @@ plugins {
 android {
  namespace = "com.atomos.mirror"
  compileSdk = 36
- defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 9; versionName = "1.0.0" }
+ defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 10; versionName = "1.1.0" }
  signingConfigs {
   create("release") {
    storeFile = file(System.getenv("ATOMOS_SIGNING_STORE_FILE") ?: "release.keystore")
@@ -28,6 +28,12 @@ dependencies {
  implementation("androidx.compose.material3:material3")
  implementation("androidx.compose.material:material-icons-extended")
  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.0")
+ implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
+ implementation("androidx.camera:camera-camera2:1.4.2")
+ implementation("androidx.camera:camera-lifecycle:1.4.2")
+ implementation("androidx.camera:camera-view:1.4.2")
+ implementation("com.google.mlkit:barcode-scanning:17.3.0")
+ implementation("com.google.zxing:core:3.5.3")
  implementation("org.nanohttpd:nanohttpd:2.3.1")
  implementation("org.java-websocket:Java-WebSocket:1.5.7")
  implementation("io.getstream:stream-webrtc-android:1.3.10")

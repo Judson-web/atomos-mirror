@@ -1,252 +1,176 @@
 # Atomos Mirror
 
-**Atomos Mirror 1.0.0** is a two-way screen-mirroring system for Android and Windows. Both devices communicate directly over the same local Wi-Fi/LAN. The Android app hosts the receiver dashboard and signalling service; the Windows companion captures or receives the desktop stream. There is no cloud relay, account, or internet service in the media path.
+**Version 1.1.0 · Android + Windows · Local-network screen mirroring**
 
-> **Release status:** 1.0.0 signed internal-testing builds are produced by GitHub Actions. The first-run signing identities are self-generated for testing unless repository signing secrets are configured. A self-signed Windows certificate is not a publicly trusted publisher certificate. Complete the real-device test plan below before treating this as a production-ready public release.
+Atomos Mirror streams screens directly between an Android phone and a Windows PC over the same local Wi-Fi/LAN. It does not require a cloud account or a media relay.
 
-## 1. What you need
+This release replaces manual PIN entry with **short-lived QR approval**, rebuilds the Android app into separate Home, Pair, Devices and Settings pages, and updates the browser dashboard and Windows companion to use the same pairing flow.
 
-- An Android device running Android 8.0 (API 26) or later.
-- A Windows 10/11 PC.
-- Both devices connected to the same private Wi-Fi network or LAN.
-- A network that allows devices to communicate with one another. Guest Wi-Fi and client/AP isolation commonly block this.
-- Windows firewall permission for Atomos Mirror on **Private networks**.
+> **Testing status:** this is an internal release candidate. CI builds and source-level tests must pass before publishing. A successful build is not proof of real-device interoperability. Validate both streaming directions on the target phone, Windows PC and router before calling it production-ready.
 
-Internet access is not required after the app and desktop installer have been downloaded. The first Windows installation may need internet access if Windows needs to retrieve a missing runtime or certificate chain.
+## Downloads
 
-## 2. Download the signed testing builds
+The current release is published at:
+- [GitHub Releases](https://github.com/Judson-web/atomos-mirror/releases)
 
-Open the repository's **Actions** tab and select the latest successful **Signed Release Candidate** run on main.
+Download the Android APK and Windows installer from the latest release Assets section. Check the SHA-256 digest shown by GitHub against the supplied checksum file.
 
-Download these artifacts:
+## What changed in 1.1.0
 
-| Artifact | Contents |
-|---|---|
-| atomos-mirror-android-v1.0.0 | Signed Android APK and SHA-256 checksum |
-| atomos-mirror-windows-v1.0.0 | Signed Windows NSIS installer, public signing certificate and checksum |
-| atomos-mirror-android-signing-material | First-run Android keystore and private signing details, if generated |
-| atomos-mirror-windows-signing-material | First-run Windows PFX and private signing details, if generated |
+- Android app now has four dedicated sections: Home, Pair, Devices and Settings.
+- Android QR scanner uses CameraX and Google ML Kit.
+- The Android-hosted web dashboard can generate a pairing QR code.
+- Windows companion can discover the Android receiver and display a QR code.
+- PINs have been removed from the UI and signalling protocol.
+- Pairing now requires approval by scanning a random 256-bit token.
+- QR challenges expire after three minutes and are not included in the public status endpoint or mDNS records.
+- Windows desktop regression tests validate the QR/token flow and embedded dashboard scripts.
 
-The signing-material artifacts are private credentials. Download them only from your own private repository, store them somewhere secure, and do not share them. They are retained for seven days by the workflow. The installable build artifacts are retained for 30 days.
+## Pairing and first connection
 
-Verify checksums after extracting the release artifact:
+1. Connect the Android phone and Windows PC to the same private Wi-Fi network. Disable VPNs for the first test.
+2. Open Atomos Mirror on Android and start the receiver from **Home**.
+3. On Windows, open the Atomos Mirror companion and press **Find**. If discovery is blocked, enter the phone's local IPv4 address and press **Generate QR**.
+4. The Windows companion requests a temporary challenge from the Android receiver and displays a QR code.
+5. In the Android app, open **Pair** and scan the QR displayed on the PC.
+6. Wait for the app to show **Computer approved**.
+7. Back on Windows, choose **Send desktop to Android** or **Receive Android screen**. The app checks that the QR was approved before opening signalling.
+8. For Windows-to-Android, press **Share desktop** and select the screen or window. For Android-to-Windows, use **Share this phone screen** on Android and approve Android's system screen-capture prompt.
 
-**Windows PowerShell:** run **Get-FileHash .\Atomos-Mirror-Setup-1.0.0.exe -Algorithm SHA256** and compare the result with the matching line in SHA256SUMS.txt.
+The QR is a one-time session approval, not a permanent device credential. Generate a fresh QR when it expires or when starting a new pairing session. Do not share a QR screenshot with anyone you do not intend to authorize on your local network.
 
-## 3. Install on Android
+### Browser dashboard
 
-1. Download Atomos-Mirror-Android-v1.0.0.apk to the phone.
-2. Open the APK. If Android asks, allow the browser or file manager to install unknown apps for this installation.
-3. If you are upgrading from an earlier debug APK, uninstall that debug build first. Debug and release APKs use different signing certificates, so Android will not install the release APK over the debug one. This first transition can reset app preferences.
-4. Install and open **Atomos Mirror**.
-5. Connect the phone to the same Wi-Fi network as the Windows PC.
-6. In Atomos Mirror, start the receiver/hosting service.
-7. Keep the app's displayed local URL and six-digit pairing PIN available. The URL normally resembles http://192.168.x.x:8765.
-8. Do not share the PIN with devices you do not intend to pair.
+The Android receiver also serves a local web dashboard at:
 
-The Android app hosts the web dashboard itself. It is not a website hosted on the public internet.
+`http://PHONE-IP:8765`
 
-## 4. Install on Windows
+Open it on a PC browser on the same LAN. Press **Generate pairing QR**, scan it from the Android app's **Pair** page, then use **Connect receiver** in the browser dashboard. The browser dashboard can receive a Windows desktop stream without installing the Windows companion.
 
-1. Extract the Windows release artifact.
-2. If this is the internal-testing build, import the accompanying atomos-codesign.cer certificate into the current Windows user's **Trusted Root Certification Authorities** and **Trusted Publishers** stores before launching the installer. Run these two commands in PowerShell:
+## Android app pages
 
-   **Import-Certificate -FilePath .\atomos-codesign.cer -CertStoreLocation Cert:\CurrentUser\Root**
+- **Home:** receiver status, local address, microphone preference and phone screen-sharing controls.
+- **Pair:** camera scanner for the QR shown by the Windows companion or browser dashboard.
+- **Devices:** live list of peers connected to the receiver.
+- **Settings:** microphone preference, receiver launch preference and app information.
 
-   **Import-Certificate -FilePath .\atomos-codesign.cer -CertStoreLocation Cert:\CurrentUser\TrustedPublisher**
-3. Run Atomos-Mirror-Setup-1.0.0.exe.
-4. If Windows Firewall prompts, allow Atomos Mirror on **Private networks**. Do not enable public-network access unless you deliberately need it.
-5. Launch Atomos Mirror from the Start menu.
+Camera permission is used only by the QR scanner. Microphone permission is requested only when microphone audio is enabled. Android's MediaProjection system prompt is required each time screen sharing starts.
 
-The first-run Windows certificate is self-signed. Importing it lets Windows validate this internal test publisher on this PC, but it does not create public certificate authority trust or guarantee that Microsoft SmartScreen will stop warning. For public distribution, replace it with an organisation-owned or publicly trusted Authenticode code-signing certificate.
+## How it works
 
-## 5. Windows to Android: show the PC screen on the phone
+- Android hosts an HTTP dashboard/API on TCP port **8765**.
+- Android hosts a WebSocket signalling coordinator on TCP port **8766**.
+- Android advertises the receiver over mDNS as `_atomosmirror._tcp.`.
+- Windows uses Electron, `desktopCapturer`, WebRTC and mDNS discovery.
+- Android screen capture uses MediaProjection and WebRTC.
+- Media travels directly between the two devices using WebRTC DTLS-SRTP. The signalling server relays negotiation messages, not video frames.
+- ICE server list is empty by design: this build targets same-LAN connectivity and does not include STUN/TURN relays.
 
-1. Start the receiver in the Android app.
-2. Open the local URL shown by Android in the phone's browser. Use the same phone that is hosting the receiver.
-3. In the dashboard, enter the six-digit PIN shown in the Android app and select **Connect receiver**.
-4. Open the Windows companion.
-5. Discover the Android receiver, or enter its local IP address manually.
-6. Enter the six-digit PIN from Android.
-7. Choose the desktop-to-Android sending mode.
-8. Select **Share desktop**, choose a monitor or individual window, and approve Windows' screen-capture prompt.
-9. The desktop stream should appear in the Android browser dashboard. Use the desktop app's stop control to end sharing.
+### QR pairing security
 
-The browser dashboard and Windows sender are separate peers. The dashboard must be paired as the receiver before the Windows sender begins negotiation.
+The Android receiver creates a random 256-bit challenge that expires after 180 seconds. The QR contains the local receiver address, signalling port, expiry and token. The Android app validates the QR format and receiver address, then explicitly approves the token. The WebSocket server accepts peers only after that approval. The session permits one sender and one receiver.
 
-## 6. Android to Windows: show the phone screen on the PC
+The HTTP dashboard is served over local plain HTTP and signalling uses local plain WebSocket. The random QR token and explicit approval improve pairing UX and prevent silent joins, but they do not replace a trusted network. Use a private LAN and do not expose ports 8765/8766 to the public internet.
 
-1. Start the receiver in the Android app.
-2. Open the Windows companion.
-3. Discover the Android receiver or enter its local IP address.
-4. Enter the six-digit PIN displayed in the Android app.
-5. Choose the Android-screen receiving mode in the Windows companion.
-6. In the Android app, select the option to share the Android screen to Windows.
-7. Approve Android's MediaProjection screen-capture prompt. Android displays its own screen-sharing indicator while capture is active.
-8. The phone screen should appear in the Windows preview.
-9. Stop sharing from Android when finished.
+## Troubleshooting
 
-Android requires a fresh system screen-capture approval when starting a MediaProjection session. The app cannot silently capture the screen.
+**Windows cannot find the Android receiver**
+- Confirm the receiver is running and both devices share the same LAN.
+- Allow mDNS/multicast and client-to-client traffic on the router.
+- Enter the phone's IPv4 address manually and generate the QR.
+- Guest Wi-Fi, client isolation, VPNs and some hotspots block discovery or direct traffic.
 
-## 7. Connection diagnostics
+**QR scan is rejected**
+- Generate a fresh QR on the PC. Challenges expire after three minutes.
+- Confirm the QR belongs to the same Android receiver currently running.
+- Open Pair in the Android app and allow camera permission.
+- If the phone changed Wi-Fi networks, restart the receiver and generate a new QR.
 
-The dashboard and desktop companion show WebRTC diagnostics when the platform exposes the relevant statistics:
+**The PC says it is waiting for approval**
+- Keep the QR visible and scan it in the Android app.
+- Wait for the app to display **Computer approved**, then press the connection direction button again.
 
-- **Bitrate:** approximate current video throughput.
-- **FPS:** approximate frames per second, calculated from frame counters when available.
-- **Packet loss:** packets reported lost by WebRTC.
-- **RTT:** round-trip time estimate where available.
-- **Connection state:** WebRTC/ICE connection state and troubleshooting hints.
-
-Metrics are sampled periodically. A blank or unavailable metric does not necessarily mean the stream has failed; browser and codec implementations expose different statistics.
-
-## 8. Network and security model
-
-| Port / layer | Purpose |
-|---|---|
-| TCP 8765 | Android-hosted dashboard and status API |
-| TCP 8766 | WebSocket signalling between peers |
-| WebRTC media | Direct peer-to-peer audio/video transport over the LAN |
-
-The Android device coordinates pairing and relays WebRTC negotiation messages. It does **not** relay the video stream through the HTTP or WebSocket server. WebRTC media uses DTLS-SRTP encryption after negotiation. The local signalling connection currently uses plain ws://, so use a trusted private network.
-
-The six-digit pairing PIN is not published in the status API or mDNS discovery records. Discovery finds the device address; the user enters the PIN manually. Signalling currently allows one sender and one receiver per session, validates message direction by peer role, and rate-limits repeated incorrect PIN attempts.
-
-Do not use Atomos Mirror on an untrusted public Wi-Fi network. The PIN is a pairing control, not a substitute for LAN isolation or TLS-protected signalling.
-
-## 9. Troubleshooting
-
-**The Android device is not discovered**
-- Confirm both devices are on the same Wi-Fi/LAN.
-- Check that the Android receiver is running.
-- Ensure the access point allows multicast/mDNS and client-to-client traffic.
-- Enter the Android IP address manually if discovery is unavailable.
-- VPNs, guest networks, mesh isolation and some mobile hotspots can prevent discovery or direct connections.
-
-**The dashboard does not open**
-- Confirm the receiver shows a local IP address and is ready.
-- Open the full URL, including http:// and port 8765.
-- Make sure the phone's browser is on the same phone/network as the receiver.
-- If the displayed address belongs to a VPN or inactive adapter, reconnect Wi-Fi and restart the receiver.
-
-**Pairing says the PIN is incorrect**
-- Enter the current six-digit PIN shown in the Android app.
-- Do not use an old PIN from a previous receiver session.
-- After several incorrect attempts, wait for the temporary rate limit to expire.
-
-**The devices pair but video does not start**
-- Make sure the receiver peer joins before starting the sender.
-- Stop and reconnect both sides, then start the sender again.
-- Allow the app through Windows Defender Firewall on private networks.
-- Disable VPNs temporarily and check router/AP client isolation.
-- If the network blocks direct peer traffic, WebRTC cannot establish the media path. This build does not use a STUN/TURN relay.
-
-**Video is choppy or delayed**
-- Start with 720p or 1080p, 24 or 30 FPS, and a moderate bitrate.
-- Prefer 5 GHz Wi-Fi or wired Ethernet for the PC.
-- Reduce other traffic on the network and keep devices near the access point.
-- Compare bitrate, FPS, packet loss and RTT diagnostics.
-
-**The Windows installer shows a publisher warning**
-- The internal test certificate is self-signed. Import the accompanying .cer into the current user's Trusted Root and Trusted Publishers stores.
-- This is only appropriate for a certificate obtained from your own private release artifact.
-- SmartScreen reputation warnings may remain. Public distribution needs a trusted Authenticode certificate.
+**Devices pair but video does not appear**
+- Start with Windows-to-Android at 720p/30 FPS.
+- Ensure the receiver is running before connecting.
+- Allow Atomos Mirror through Windows Defender Firewall on Private networks.
+- Disable VPNs and verify router client isolation is off.
+- Both peers need a direct LAN route. No TURN relay is configured.
 
 **Android screen sharing stops**
-- Keep the foreground screen-sharing notification active.
-- Some Android vendors apply aggressive battery restrictions. Set Atomos Mirror to unrestricted battery use during testing if the OS is stopping its foreground service.
-- Android internal playback audio capture is not implemented yet. Optional microphone capture is separate.
+- Keep the MediaProjection foreground notification active.
+- Approve the Android screen-capture prompt each time.
+- Set Atomos Mirror battery usage to unrestricted during long tests if the phone aggressively stops background services.
 
-## 10. Real-device test checklist
+**Windows installer shows a publisher warning**
+- The internal testing installer may use a self-signed certificate. It is not a publicly trusted publisher identity.
+- Do not import a certificate unless it came from the same trusted release artifact.
+- Public distribution requires a trusted Authenticode certificate.
 
-Use a normal private Wi-Fi network first, with VPNs disabled. Record the phone model, Android version, Windows version, router/AP, selected resolution/FPS/bitrate and the diagnostics shown during each run.
-
-- [ ] Install the signed APK and Windows installer from the same successful workflow run.
-- [ ] Confirm Android receiver starts and the local dashboard opens from the phone.
-- [ ] Confirm mDNS discovery and manual-IP pairing both work.
-- [ ] Stream Windows → Android for at least 15 minutes at 720p/30 FPS.
-- [ ] Stream Android → Windows for at least 15 minutes at 720p/30 FPS.
-- [ ] Repeat at 1080p/30 FPS and compare bitrate, FPS, packet loss and RTT.
-- [ ] Stop and restart each direction without restarting either device.
-- [ ] Disconnect and reconnect Wi-Fi, then verify recovery or a clear reconnect path.
-- [ ] Test Android app backgrounding, screen lock and battery restrictions.
-- [ ] Test Windows Firewall with Private-network permission and confirm Public-network access is not required.
-- [ ] Check audio separately: Android microphone and Windows loopback. Android internal playback audio is not implemented.
-- [ ] Test a second router/AP if available, especially one with client isolation or guest networking.
-
-Do not mark a test as passed unless it was observed on the actual phone and PC. CI success proves the build and source-level tests passed, not that the wireless stream was validated on every device.
-
-## 11. Known limitations before public production
+## Known limitations
 
 - Android internal playback audio capture is not implemented. Optional microphone capture is available.
-- Windows system-audio loopback depends on Windows/Electron support and may not work on every PC.
-- No STUN/TURN relay is configured. Both devices need a LAN that permits direct peer connectivity.
-- Signalling is local plain WebSocket rather than TLS.
-- mDNS discovery requires multicast; manual IP entry is the fallback.
-- Real-device interoperability, extended-session stability, battery behavior, audio quality, multiple Wi-Fi chipsets and Windows firewall configurations still require a proper test matrix.
-- The Android release is signed, but the first-run test key is self-generated unless a persistent release keystore is configured.
-- The first-run Windows installer is Authenticode-signed with a self-signed test certificate unless a persistent code-signing PFX is configured.
+- Windows loopback audio depends on Windows/Electron support and device policy.
+- No STUN/TURN relay is configured. Same-LAN direct connectivity is required.
+- Local HTTP and WebSocket signalling are not TLS-protected. Use a trusted private network.
+- mDNS discovery depends on multicast; manual IPv4 entry is the fallback.
+- Real-device compatibility, extended-session stability, thermal/battery behavior, audio quality and different router/firewall configurations still need validation.
 
-## 12. Preserve the signing identities
+## Real-device acceptance checklist
 
-**Important:** Android will reject an in-place update if the new APK is signed with a different key. Keep the Android keystore and passwords backed up securely. Never regenerate them after distributing the APK.
+Do not mark these complete based only on CI:
 
-The signed-release workflow supports these GitHub Actions repository secrets:
+- [ ] Install the new signed APK and Windows installer.
+- [ ] Start Android receiver and open `http://PHONE-IP:8765` from Windows.
+- [ ] Generate a QR in the browser dashboard and scan it from Android.
+- [ ] Generate a QR in the Windows companion and scan it from Android.
+- [ ] Verify expired QR codes are rejected and fresh QR codes work.
+- [ ] Stream Windows → Android for at least 15 minutes at 720p/30 FPS.
+- [ ] Stream Android → Windows for at least 15 minutes at 720p/30 FPS.
+- [ ] Repeat at 1080p/30 FPS and inspect bitrate, FPS, packet loss and RTT.
+- [ ] Stop and restart both directions without rebooting either device.
+- [ ] Toggle Wi-Fi and verify the app reports a useful recovery state.
+- [ ] Test Android app backgrounding, screen lock and battery restrictions.
+- [ ] Test Windows Firewall with Private-network permission only.
 
-| Secret | Value |
-|---|---|
-| ANDROID_KEYSTORE_BASE64 | Base64 of the .keystore file |
-| ANDROID_KEYSTORE_PASSWORD | Keystore password |
-| ANDROID_KEY_ALIAS | Key alias |
-| ANDROID_KEY_PASSWORD | Private-key password |
-| WINDOWS_CERT_PFX_BASE64 | Base64 of the code-signing .pfx |
-| WINDOWS_CERT_PASSWORD | PFX password |
-
-For the first run, if these secrets are absent, the workflow generates temporary internal-testing signing identities and uploads them as separate seven-day signing-material artifacts. Download those artifacts and preserve the files. Add the values from their *-signing-secrets.txt files to **GitHub → repository Settings → Secrets and variables → Actions → New repository secret** before the next release build. The workflow then reuses those identities.
-
-To create the base64 values locally in PowerShell, run one command at a time:
-
-**[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\atomos-release.keystore")) | Set-Clipboard**
-
-**[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\atomos-codesign.pfx")) | Set-Clipboard**
-
-Paste each result into the matching GitHub secret. Never paste private keys or passwords into source files, commits, issues, or chat.
-
-For a publicly distributed Windows application, use a trusted Authenticode certificate rather than the self-signed test certificate. Keep the PFX private and protect it with a strong password.
-
-## 13. Build from source
+## Build from source
 
 ### Android
-Requirements: JDK 17, Android SDK 36, Gradle 8.13.
 
-Run **gradle assembleDebug** for a debug build.
+Requirements: JDK 17, Android SDK 36 and Gradle 8.13.
 
-A signed release build requires the four Android signing environment variables used by app/build.gradle.kts:
-- ATOMOS_SIGNING_STORE_FILE
-- ATOMOS_SIGNING_STORE_PASSWORD
-- ATOMOS_SIGNING_KEY_ALIAS
-- ATOMOS_SIGNING_KEY_PASSWORD
+```bash
+gradle assembleDebug
+```
 
-Then run **gradle assembleRelease**.
+For a signed release build, configure these environment variables:
+- `ATOMOS_SIGNING_STORE_FILE`
+- `ATOMOS_SIGNING_STORE_PASSWORD`
+- `ATOMOS_SIGNING_KEY_ALIAS`
+- `ATOMOS_SIGNING_KEY_PASSWORD`
+
+Then run:
+
+```bash
+gradle assembleRelease
+```
 
 ### Windows
-Requirements: Windows 10/11, Node.js 22, npm.
 
-From the desktop directory, run:
+Requirements: Windows 10/11, Node.js 22 and npm.
 
-- **npm install**
-- **npm test**
-- **npm start**
-- **npm run dist**
+```bash
+cd desktop
+npm install
+npm test
+npm start
+npm run dist
+```
 
-A signed Windows build requires CSC_LINK to point to a PFX file and CSC_KEY_PASSWORD to contain its password. The signed-release GitHub Actions workflow configures these automatically.
+The signed release workflow uses the repository's Android keystore and Windows code-signing PFX secrets when configured. If signing secrets are absent, it generates temporary internal-testing identities. Preserve those identities securely: Android does not accept an update signed by a different key.
 
-## 14. Release workflow
+## Release workflow
 
-The **Signed Release Candidate** workflow runs on pushes to main and can also be started manually from the Actions tab. It builds and verifies a signed Android release APK, runs desktop regression tests, builds the Authenticode-signed Windows installer, and uploads the outputs as versioned Actions artifacts.
+The **Signed Release Candidate** workflow runs on pushes to `main` and can be started manually from GitHub Actions. It builds and verifies the signed Android APK, runs desktop regression tests, builds the Windows installer and uploads release artifacts.
 
-The current 1.0.0 artifacts are internal test builds. Do not describe them as publicly trusted production releases until:
-1. persistent signing identities are securely configured,
-2. the Android and Windows devices complete the real-device test matrix,
-3. the Windows installer is signed with a trusted publisher certificate if public distribution is intended, and
-4. the remaining limitations above have been addressed or accepted.
+Before describing any build as production-ready, complete the real-device acceptance checklist, preserve stable signing identities, and use a trusted Windows publisher certificate for public distribution.

@@ -1,6 +1,11 @@
 package com.atomos.mirror
 
 import android.content.Context
+import android.graphics.Bitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
@@ -8,19 +13,54 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /** Local-only HTTP dashboard hosted by the Android device. */
-class LocalReceiverServer(context: Context, port: Int = 8765, private val peerSnapshot: () -> JSONArray = { JSONArray() }) : NanoHTTPD("0.0.0.0", port) {
+class LocalReceiverServer(
+    context: Context,
+    port: Int = 8765,
+    private val peerSnapshot: () -> JSONArray = { JSONArray() },
+    private val pairingChallenge: (String) -> JSONObject,
+    private val approvedPairingToken: () -> String?
+) : NanoHTTPD("0.0.0.0", port) {
     override fun serve(session: IHTTPSession): Response = when (session.uri) {
-        "/api/status" -> newFixedLengthResponse(
-            Response.Status.OK, "application/json; charset=utf-8",
-            JSONObject().put("name", "Atomos Mirror").put("status", "online")
-                .put("host", localAddress()).put("port", listeningPort)
-                .put("signalPort", 8766)
-                .put("devices", peerSnapshot()).put("deviceCount", peerSnapshot().length())
-                .put("transport", "local-webrtc").put("streamingReady", true).toString()
-        )
+        "/api/status" -> jsonResponse(JSONObject().put("name", "Atomos Mirror").put("status", "online")
+            .put("host", localAddress()).put("port", listeningPort).put("signalPort", 8766)
+            .put("devices", peerSnapshot()).put("deviceCount", peerSnapshot().length())
+            .put("transport", "local-webrtc").put("streamingReady", true))
+        "/api/pairing/challenge" -> jsonResponse(pairingChallenge(localAddress()).put("httpPort", listeningPort))
+        "/api/pairing/session" -> {
+            val token = approvedPairingToken()
+            if (token == null) jsonResponse(JSONObject().put("approved", false).put("message", "Scan the current QR in the Atomos app first"), Response.Status.FORBIDDEN)
+            else jsonResponse(JSONObject().put("approved", true).put("token", token).put("signalPort", 8766))
+        }
+        "/api/pairing/qr.png" -> {
+            val payload = pairingChallenge(localAddress()).put("httpPort", listeningPort).toString()
+            val bytes = createQrPng(payload)
+            newFixedLengthResponse(Response.Status.OK, "image/png", ByteArrayInputStream(bytes), bytes.size.toLong()).apply {
+                addHeader("Cache-Control", "no-store")
+                addHeader("Access-Control-Allow-Origin", "*")
+            }
+        }
         "/health" -> newFixedLengthResponse(Response.Status.OK, "text/plain", "ok")
         "/", "/index.html" -> newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", DASHBOARD)
         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found")
+    }
+
+    private fun jsonResponse(json: JSONObject, status: Response.Status = Response.Status.OK): Response =
+        newFixedLengthResponse(status, "application/json; charset=utf-8", json.toString()).apply {
+            addHeader("Cache-Control", "no-store")
+            addHeader("Access-Control-Allow-Origin", "*")
+            addHeader("Access-Control-Allow-Methods", "GET, OPTIONS")
+            addHeader("Access-Control-Allow-Headers", "Content-Type")
+        }
+
+    private fun createQrPng(payload: String): ByteArray {
+        val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 480, 480)
+        val bitmap = Bitmap.createBitmap(480, 480, Bitmap.Config.ARGB_8888)
+        for (y in 0 until 480) for (x in 0 until 480)
+            bitmap.setPixel(x, y, if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        val output = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+        bitmap.recycle()
+        return output.toByteArray()
     }
 
     fun localAddress(): String {
@@ -64,9 +104,9 @@ main{max-width:1050px;margin:auto;padding:42px 24px}.top{display:flex;align-item
 </style></head><body><main><header class="top"><div class="brand"><div class="logo">A</div><div><h1>Atomos Mirror</h1><small>Local receiver</small></div></div><span class="pill">● LOCAL SERVER</span></header>
 <section class="hero"><div class="eyebrow">Your devices, one screen</div><h2>Connect. Mirror.<br>Stay in control.</h2><p>This receiver is running directly from your Android device. Connect another device to the same Wi-Fi network and use Atomos Mirror to discover this receiver.</p></section>
 <section class="grid"><article class="panel"><h3>Connection list <span class="muted" id="count">· 0 devices</span></h3><div id="device-list" class="empty"><div class="glyph">⌁</div><b>No devices connected</b><p class="muted">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p></div></article>
-<aside class="panel"><h3>Receiver details</h3><div class="stat"><span>Network</span><b>Local Wi-Fi</b></div><div class="stat"><span>Server</span><b id="server">Starting…</b></div><div class="stat"><span>Media stream</span><b>Not connected</b></div><div class="address" id="address">Loading address…</div><button class="copy" onclick="navigator.clipboard?.writeText(location.href)">Copy receiver address</button></aside></section>
-<footer>Private local-network dashboard · Served by your Android device · No cloud account required.<br>Pairing uses your six-digit PIN. Media travels directly between devices over WebRTC.</footer></main>
-<script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices';const list=document.querySelector('#device-list');if(s.devices.length){list.className='';list.innerHTML=s.devices.map(d=>'<div class=\"stat\"><span>'+String(d.name).replace(/[&<>\"']/g,'')+' · '+d.role+'</span><b>● Connected</b></div>').join('')}else{list.className='empty';list.innerHTML='<div class=\"glyph\">⌁</div><b>No devices connected</b><p class=\"muted\">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p>'}}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);</script></body></html>
+<aside class="panel"><h3>Receiver details</h3><div class="stat"><span>Network</span><b>Local Wi-Fi</b></div><div class="stat"><span>Server</span><b id="server">Starting…</b></div><div class="stat"><span>Media stream</span><b>Not connected</b></div><div class="address" id="address">Loading address…</div><button class="copy" onclick="navigator.clipboard?.writeText(location.href)">Copy receiver address</button><div style="margin-top:22px;padding-top:18px;border-top:1px solid #26334a"><h3 style="margin-bottom:8px">Secure app pairing</h3><p class="muted" style="font-size:12px;line-height:1.6">Generate a short-lived QR code, then scan it from the Atomos Mirror Android app to approve this device.</p><img id="pair-qr" alt="Pairing QR code" style="display:none;width:min(100%,260px);background:white;padding:10px;border-radius:14px;margin:14px auto"><button class="copy" id="generate-pair-qr" type="button">Generate pairing QR</button><p id="pair-qr-state" class="muted" style="font-size:11px;margin-top:8px">QR expires after three minutes.</p></div></aside></section>
+<footer>Private local-network dashboard · Served by your Android device · No cloud account required.<br>Pairing requires scanning an expiring QR code in the Atomos Mirror Android app. Media travels directly between devices over WebRTC.</footer></main>
+<script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices';const list=document.querySelector('#device-list');if(s.devices.length){list.className='';list.innerHTML=s.devices.map(d=>'<div class=\"stat\"><span>'+String(d.name).replace(/[&<>\"']/g,'')+' · '+d.role+'</span><b>● Connected</b></div>').join('')}else{list.className='empty';list.innerHTML='<div class=\"glyph\">⌁</div><b>No devices connected</b><p class=\"muted\">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p>'}}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);document.querySelector('#generate-pair-qr').addEventListener('click',()=>{const image=document.querySelector('#pair-qr');image.src='/api/pairing/qr.png?'+Date.now();image.style.display='block';document.querySelector('#pair-qr-state').textContent='Scan this QR in Atomos Mirror on your phone. It expires in three minutes.'});</script></body></html>
         <script>
 let pc=null,ws=null,iceQueue=[],browserRetry=0,browserRetryTimer=null;
 const video=document.createElement('video');
@@ -74,7 +114,7 @@ video.autoplay=true;video.playsInline=true;video.controls=true;
 video.style.cssText='display:block;width:100%;max-height:65vh;background:#05080f;border-radius:14px;margin:18px 0;object-fit:contain';
 const main=document.querySelector('main');
 const panel=document.createElement('section');panel.style.cssText='background:#111a2b;border:1px solid #25324a;border-radius:20px;padding:20px;margin-top:18px';
-panel.innerHTML='<h3>Live desktop stream</h3><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><input id="am-pin-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Enter six-digit PIN" style="min-width:180px;flex:1;padding:12px;border-radius:10px;border:1px solid #34445f;background:#0b1322;color:#eef3ff"><button id="am-connect" class="copy" type="button">Connect receiver</button></div><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
+panel.innerHTML='<h3>Live desktop stream</h3><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span style="color:#9eabc2;font-size:12px">Scan the QR above with the Android app, then connect this browser receiver.</span><button id="am-connect" class="copy" type="button">Connect receiver</button></div><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
 panel.appendChild(video);main.appendChild(panel);
 let amPreviousBytes=0,amPreviousFrames=0,amPreviousAt=0;
 function amMetric(id,value){const el=document.querySelector('#'+id);if(el)el.textContent=value}
@@ -98,13 +138,15 @@ async function amUpdateStats(){
 setInterval(amUpdateStats,1000);
 async function atomosReceiver(){
  const s=await (await fetch('/api/status',{cache:'no-store'})).json();
- const pairingPin=document.querySelector('#am-pin-input').value.trim();
- if(!/^\d{6}$/.test(pairingPin)){document.querySelector('#am-state').textContent='Enter the six-digit PIN shown in the Android app.';return}
+ const pairingResponse=await fetch('/api/pairing/session',{cache:'no-store'});
+ const pairing=await pairingResponse.json();
+ const pairingToken=pairing.token;
+ if(!pairingResponse.ok||!pairingToken){document.querySelector('#am-state').textContent='Scan the current pairing QR in the Atomos Android app first.';return}
  if(ws && ws.readyState===WebSocket.OPEN)ws.close();
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
  const activeSocket=ws;
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
- ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pin:pairingPin,name:'Android browser receiver'})};
+ ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pairingToken,name:'Android browser receiver'})};
  ws.onmessage=async e=>{
   const m=JSON.parse(e.data);
   if(m.type==='offer'){
@@ -119,7 +161,7 @@ async function atomosReceiver(){
   else if(m.type==='diagnostics')document.querySelector('#am-remote').textContent='Android sender · '+m.state+' · '+(m.bitrateBps>=0?(m.bitrateBps/1e6).toFixed(2)+' Mbps':'measuring')+' · '+(m.fps?Math.round(m.fps)+' FPS':'FPS unavailable')+' · '+(m.rttMs>=0?m.rttMs+' ms RTT':'RTT unavailable');
   else if(m.type==='error'){document.querySelector('#am-state').textContent=m.message;browserRetry=8;clearTimeout(browserRetryTimer)}
  };
- ws.onclose=()=>{if(ws!==activeSocket)return;if(pc){pc.close();pc=null}video.srcObject=null;if(browserRetry<8){document.querySelector('#am-state').textContent='Signalling disconnected · retrying';clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry++;browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)}else{document.querySelector('#am-state').textContent='Disconnected. Check the PIN and reconnect.'}};
+ ws.onclose=()=>{if(ws!==activeSocket)return;if(pc){pc.close();pc=null}video.srcObject=null;if(browserRetry<8){document.querySelector('#am-state').textContent='Signalling disconnected · retrying';clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry++;browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)}else{document.querySelector('#am-state').textContent='Disconnected. Scan a fresh QR and reconnect.'}};
 }
 document.querySelector('#am-connect').addEventListener('click',()=>{browserRetry=0;atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message)});
         </script>
