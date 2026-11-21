@@ -54,7 +54,7 @@ main{max-width:1050px;margin:auto;padding:42px 24px}.top{display:flex;align-item
 <footer>Private local-network dashboard · Served by your Android device · No cloud account required.<br>Pairing uses your six-digit PIN. Media travels directly between devices over WebRTC.</footer></main>
 <script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices';const list=document.querySelector('#device-list');if(s.devices.length){list.className='';list.innerHTML=s.devices.map(d=>'<div class=\"stat\"><span>'+String(d.name).replace(/[&<>\"']/g,'')+' · '+d.role+'</span><b>● Connected</b></div>').join('')}else{list.className='empty';list.innerHTML='<div class=\"glyph\">⌁</div><b>No devices connected</b><p class=\"muted\">Open the Windows companion and press Find. This receiver is advertised on your local Wi-Fi network.</p>'}}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);</script></body></html>
         <script>
-let pc=null,ws=null,iceQueue=[];
+let pc=null,ws=null,iceQueue=[],browserRetry=0,browserRetryTimer=null;
 const video=document.createElement('video');
 video.autoplay=true;video.playsInline=true;video.controls=true;
 video.style.cssText='display:block;width:100%;max-height:65vh;background:#05080f;border-radius:14px;margin:18px 0;object-fit:contain';
