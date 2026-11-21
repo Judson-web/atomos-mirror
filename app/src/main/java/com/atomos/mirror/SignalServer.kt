@@ -6,6 +6,7 @@ import org.java_websocket.server.WebSocketServer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
@@ -79,7 +80,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
             val data = JSONObject(message)
             when (data.optString("type")) {
                 "hello" -> authenticate(conn, data)
-                "offer", "answer", "ice", "hangup", "diagnostics" -> relay(conn, message, data)
+                "offer", "answer", "ice", "hangup", "diagnostics", "settings" -> relay(conn, message, data)
                 "heartbeat" -> {
                     val peer = peers[conn] ?: run { conn.send(error("Pair before heartbeat")); return }
                     conn.send(JSONObject().put("type", "heartbeat_ack").put("deviceId", peer.id)
@@ -88,6 +89,21 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
                 else -> conn.send(error("Unknown message type"))
             }
         } catch (_: Exception) { conn.send(error("Invalid signalling message")) }
+    }
+
+    override fun onMessage(conn: WebSocket, message: ByteBuffer) {
+        val source = peers[conn] ?: run {
+            conn.close(1008, "Pair before media")
+            return
+        }
+        if (source.role != "sender" || message.remaining() > MAX_AUDIO_FRAME_BYTES) {
+            conn.close(1009, "Invalid audio frame")
+            return
+        }
+        val target = peers.entries.firstOrNull { (socket, peer) ->
+            socket != conn && socket.isOpen && peer.role == "receiver"
+        }?.key ?: return
+        try { target.send(message.asReadOnlyBuffer()) } catch (_: Exception) { }
     }
 
     private fun authenticate(conn: WebSocket, data: JSONObject) {
@@ -157,7 +173,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
         val type = data.optString("type")
         val allowedForRole = when (type) {
             "offer", "diagnostics" -> source.role == "sender"
-            "answer" -> source.role == "receiver"
+            "answer", "settings" -> source.role == "receiver"
             else -> true
         }
         if (!allowedForRole) {
@@ -194,6 +210,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
     companion object {
         private const val MAX_PEERS = 2
         private const val MAX_SIGNAL_BYTES = 1_000_000
+        private const val MAX_AUDIO_FRAME_BYTES = 16_384
         private const val MAX_AUTH_FAILURES = 5
         private const val AUTH_WINDOW_MS = 60_000L
         private const val AUTH_LOCKOUT_MS = 30_000L
