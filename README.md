@@ -58,3 +58,8 @@ Allow Atomos Mirror through Windows Defender Firewall on private networks. Guest
 Android microphone streaming is optional and permission-gated; Android internal playback audio is not yet captured. Windows system-audio capture is best-effort and depends on Electron and Windows support. The Windows quality controls set capture constraints and a target sender bitrate, but actual negotiated quality depends on the display, codec, network and receiver. mDNS discovery depends on multicast being permitted by the Wi-Fi network. Connection recovery and receiver-service persistence still need work.
 
 Source code and CI builds are not substitutes for an end-to-end device test. Validate on a real Android phone and Windows 10/11 machine before treating this as a stable release.
+
+
+## v0.5.0 receiver lifecycle
+
+The Android LAN receiver is now owned by a dedicated foreground service rather than the launcher Activity. Starting the receiver creates a persistent notification and keeps the HTTP dashboard, WebSocket signalling endpoint, and mDNS advertisement alive when the app is backgrounded or the Activity is recreated. Stopping the receiver explicitly tears down those resources. This lifecycle change has been added to the Android CI build; real-device background/foreground behavior still needs verification on target Android versions and vendor battery-management settings.
