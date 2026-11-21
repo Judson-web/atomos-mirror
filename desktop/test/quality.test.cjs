@@ -19,14 +19,19 @@ test("Android-hosted browser dashboard scripts parse", () => {
   scripts.forEach((script, index) => assert.doesNotThrow(() => new Function(script), "dashboard script " + index));
 });
 
-test("pairing PIN is not exposed through status API or mDNS", () => {
+test("pairing uses approved expiring QR tokens instead of PINs", () => {
   const http = read("app/src/main/java/com/atomos/mirror/LocalReceiverServer.kt");
   const service = read("app/src/main/java/com/atomos/mirror/MirrorReceiverService.kt");
   const desktop = read("desktop/main.cjs");
   assert.doesNotMatch(http, /put\("pairingPin"/);
   assert.doesNotMatch(service, /setAttribute\("pin"/);
   assert.doesNotMatch(desktop, /pin:\s*String\(txt\.pin/);
-  assert.match(http, /am-pin-input/);
+  assert.match(http, /api\\/pairing\\/challenge/);
+  assert.match(http, /api\\/pairing\\/session/);
+  assert.match(http, /generate-pair-qr/);
+  assert.doesNotMatch(http, /am-pin-input|six-digit PIN/);
+  assert.match(service, /approvePairingToken/);
+  assert.match(desktop, /generate-qr/);
 });
 
 test("signalling limits a session to one sender and one receiver", () => {
@@ -34,10 +39,15 @@ test("signalling limits a session to one sender and one receiver", () => {
   assert.match(signal, /MAX_PEERS = 2/);
   assert.match(signal, /it\.role == role/);
   assert.match(signal, /peer\.role != source\.role/);
-  assert.match(signal, /MAX_PIN_FAILURES = 5/);
+  assert.match(signal, /MAX_AUTH_FAILURES = 5/);
+  assert.match(signal, /challengeApproved/);
+  assert.match(signal, /CHALLENGE_TTL_MS = 180_000L/);
   assert.match(signal, /allowedForRole/);
   const androidSender = read("app/src/main/java/com/atomos/mirror/AndroidScreenSender.kt");
   const desktopSender = read("desktop/renderer.js");
   assert.match(androidSender, /receiverPresent/);
+  assert.match(androidSender, /pairingToken/);
   assert.match(desktopSender, /hasCounterpart/);
+  assert.match(desktopSender, /pairingToken/);
+  assert.match(desktopSender, /preparePairing/);
 });
