@@ -14,7 +14,7 @@ test("Electron entry points parse without executing privileged APIs", () => {
 
 test("Android-hosted browser dashboard scripts parse", () => {
   const kotlin = read("app/src/main/java/com/atomos/mirror/LocalReceiverServer.kt");
-  const scripts = [...kotlin.matchAll(/<script>([\\s\\S]*?)<\\/script>/g)].map(match => match[1]);
+  const scripts = [...kotlin.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]);
   assert.equal(scripts.length, 2, "expected dashboard and WebRTC receiver scripts");
   scripts.forEach((script, index) => assert.doesNotThrow(() => new Function(script), "dashboard script " + index));
 });
@@ -23,16 +23,16 @@ test("pairing PIN is not exposed through status API or mDNS", () => {
   const http = read("app/src/main/java/com/atomos/mirror/LocalReceiverServer.kt");
   const service = read("app/src/main/java/com/atomos/mirror/MirrorReceiverService.kt");
   const desktop = read("desktop/main.cjs");
-  assert.doesNotMatch(http, /put\\("pairingPin"/);
-  assert.doesNotMatch(service, /setAttribute\\("pin"/);
-  assert.doesNotMatch(desktop, /pin:\\s*String\\(txt\\.pin/);
+  assert.doesNotMatch(http, /put\("pairingPin"/);
+  assert.doesNotMatch(service, /setAttribute\("pin"/);
+  assert.doesNotMatch(desktop, /pin:\s*String\(txt\.pin/);
   assert.match(http, /am-pin-input/);
 });
 
 test("signalling limits a session to one sender and one receiver", () => {
   const signal = read("app/src/main/java/com/atomos/mirror/SignalServer.kt");
   assert.match(signal, /MAX_PEERS = 2/);
-  assert.match(signal, /it\\.role == role/);
-  assert.match(signal, /peer\\.role != source\\.role/);
+  assert.match(signal, /it\.role == role/);
+  assert.match(signal, /peer\.role != source\.role/);
   assert.match(signal, /MAX_PIN_FAILURES = 5/);
 });
