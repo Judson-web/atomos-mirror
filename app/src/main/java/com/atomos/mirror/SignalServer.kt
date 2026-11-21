@@ -14,7 +14,7 @@ import java.util.UUID
 
 /**
  * LAN-only signalling coordinator. A short-lived QR challenge must be approved
- * by the Android app before either peer can join. Media never passes through here.
+ * by the Android app before either peer can join. Video stays peer-to-peer; small PCM audio frames are relayed only to the paired browser.
  */
 class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.0", port)) {
     private val signalPort = port
