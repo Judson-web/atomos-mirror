@@ -7,7 +7,7 @@
 - Android foreground receiver service keeps the local dashboard, WebSocket signalling and mDNS discovery alive independently of the Activity.
 - Receiver startup state is restored when the app is reopened, and startup failures are surfaced in the Android UI.
 - Windows desktop capture supports displays and individual windows, with selectable 720p/1080p/1440p, 24/30/60 FPS and target bitrate controls.
-- Android screen capture uses MediaProjection and a foreground service.
+- Android screen capture uses MediaProjection and a foreground service, adapting capture dimensions to the phone's aspect ratio up to a 1920×1080 long/short-side ceiling.
 - Both directions use direct WebRTC media transport. Android coordinates signalling but does not relay the video stream.
 - Optional Android microphone capture is permission-gated. Windows loopback audio is best-effort.
 - Android browser receiver and Windows companion expose live bitrate, FPS, packet-loss and RTT diagnostics where WebRTC provides those metrics.
