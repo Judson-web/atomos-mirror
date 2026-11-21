@@ -115,10 +115,7 @@ class MainActivity : ComponentActivity() {
                     onShareAndroid = { withMicrophone ->
                         shareWithMicrophone = withMicrophone
                         receiverPrefs.edit().putBoolean("microphone_enabled", withMicrophone).apply()
-                        if (receiverService?.approvedPairingToken().isNullOrBlank() &&
-                            receiverPrefs.getString("pairing_token", null).isNullOrBlank()) {
-                            pendingShareRequest = false
-                        } else requestScreenCapture()
+                        if (!receiverService?.approvedPairingToken().isNullOrBlank()) requestScreenCapture()
                     },
                     onStopAndroid = {
                         stopService(Intent(this, AndroidScreenShareService::class.java)
@@ -140,8 +137,7 @@ class MainActivity : ComponentActivity() {
                 json.optJSONObject(index)?.let { it.optString("name") to it.optString("role") }
             }
         } ?: emptyList()
-        val paired = !service?.approvedPairingToken().isNullOrBlank() ||
-            !receiverPrefs.getString("pairing_token", null).isNullOrBlank()
+        val paired = !service?.approvedPairingToken().isNullOrBlank()
         val address = if (service == null) "" else service.localAddress().let {
             if (it == "Connect to Wi-Fi" || it == "Unavailable") it else "http://$it:${service.httpPort}"
         }
@@ -159,7 +155,7 @@ class MainActivity : ComponentActivity() {
             if (qrHost != expectedHost) return "This QR belongs to another network address. Refresh the QR on the connected PC and try again."
             val token = data.optString("token")
             if (!service.approvePairingToken(token)) return "This QR has expired. Generate a fresh QR on the computer."
-            receiverPrefs.edit().remove("pairing_token").apply()
+            
             serviceRevision.intValue++
             "Computer approved. Return to the computer and start mirroring."
         } catch (_: Exception) {
@@ -182,7 +178,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopReceiver() {
-        receiverPrefs.edit().putBoolean("receiver_enabled", false).remove("pairing_token").apply()
+        receiverPrefs.edit().putBoolean("receiver_enabled", false).apply()
         pendingShareRequest = false
         stopService(Intent(this, AndroidScreenShareService::class.java).setAction(AndroidScreenShareService.ACTION_STOP))
         stopService(Intent(this, MirrorReceiverService::class.java).setAction(MirrorReceiverService.ACTION_STOP))
