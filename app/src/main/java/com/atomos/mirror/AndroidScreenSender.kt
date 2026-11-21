@@ -11,6 +11,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.min
 
 /** Captures the Android display with MediaProjection and sends it directly to a paired LAN peer. */
 class AndroidScreenSender(
@@ -93,7 +94,13 @@ class AndroidScreenSender(
             override fun onStop() { stop() }
         })
         capturer!!.initialize(textureHelper!!, context, videoSource!!.capturerObserver)
-        capturer!!.startCapture(1280, 720, 30)
+        val display = context.resources.displayMetrics
+        val sourceWidth = display.widthPixels.coerceAtLeast(2)
+        val sourceHeight = display.heightPixels.coerceAtLeast(2)
+        val scale = min(1.0, min(1920.0 / maxOf(sourceWidth, sourceHeight), 1080.0 / minOf(sourceWidth, sourceHeight)))
+        val captureWidth = ((sourceWidth * scale).toInt().coerceAtLeast(2) / 2) * 2
+        val captureHeight = ((sourceHeight * scale).toInt().coerceAtLeast(2) / 2) * 2
+        capturer!!.startCapture(captureWidth, captureHeight, 30)
 
         connectSignalling()
         statsExecutor.scheduleAtFixedRate({ collectStats() }, 2, 1, TimeUnit.SECONDS)
