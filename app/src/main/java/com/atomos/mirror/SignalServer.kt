@@ -24,7 +24,6 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
 
     init {
         setConnectionLostTimeout(20)
-        setMaxFrameSize(MAX_SIGNAL_BYTES)
     }
 
     fun devicesJson(): JSONArray {
