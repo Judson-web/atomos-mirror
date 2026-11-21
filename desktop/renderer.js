@@ -149,9 +149,14 @@ async function connect(role = "sender", retry = false) {
       };
       peer.onicecandidate = event => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
       peer.onconnectionstatechange = () => {
-        $("quality").textContent = peer ? peer.connectionState : "Disconnected";
+        const state = peer ? peer.connectionState : "closed";
+        $("quality").textContent = state;
         startDiagnostics();
-        if (peer && ["failed", "disconnected"].includes(peer.connectionState)) hint("Media connection interrupted. Waiting for the sender to reconnect…");
+        if (["failed", "disconnected"].includes(state)) hint(explainConnection(state, peer?.iceConnectionState));
+      };
+      peer.oniceconnectionstatechange = () => {
+        if (peer && ["failed", "disconnected"].includes(peer.iceConnectionState))
+          hint(explainConnection(peer.connectionState, peer.iceConnectionState));
       };
       await peer.setRemoteDescription(message.description);
       for (const candidate of pendingCandidates) await peer.addIceCandidate(candidate);
@@ -176,6 +181,13 @@ async function connect(role = "sender", retry = false) {
       $("stop").disabled = true;
       $("share").disabled = role !== "sender";
       hint("The other device stopped sharing.");
+    } else if (message.type === "diagnostics") {
+      if (activeRole === "receiver") {
+        const remote = "Android sender telemetry · " + (message.bitrateBps >= 0 ? (message.bitrateBps / 1000000).toFixed(2) + " Mbps" : "bitrate measuring") +
+          " · " + (message.fps ? Math.round(message.fps) + " FPS" : "FPS unavailable") +
+          " · " + (message.rttMs >= 0 ? message.rttMs + " ms RTT" : "RTT unavailable");
+        diag("diag-advice", remote + " | " + explainConnection(peer?.connectionState, peer?.iceConnectionState));
+      }
     } else if (message.type === "error") {
       hint(message.message || "Pairing failed.");
       status("Pairing failed");
@@ -227,9 +239,14 @@ async function negotiateDesktopStream() {
   });
   peer.onicecandidate = event => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
   peer.onconnectionstatechange = () => {
-    $("quality").textContent = peer ? peer.connectionState : "Disconnected";
+    const state = peer ? peer.connectionState : "closed";
+    $("quality").textContent = state;
     startDiagnostics();
-    if (peer && ["failed", "disconnected"].includes(peer.connectionState)) hint("Media path interrupted. Signalling will attempt to restore the session.");
+    if (["failed", "disconnected"].includes(state)) hint(explainConnection(state, peer?.iceConnectionState));
+  };
+  peer.oniceconnectionstatechange = () => {
+    if (peer && ["failed", "disconnected"].includes(peer.iceConnectionState))
+      hint(explainConnection(peer.connectionState, peer.iceConnectionState));
   };
   const offer = await peer.createOffer();
   await peer.setLocalDescription(offer);
