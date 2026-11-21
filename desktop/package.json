@@ -31,8 +31,7 @@
         "nsis"
       ],
       "artifactName": "Atomos-Mirror-Setup-${version}.${ext}",
-      "signAndEditExecutable": true,
-      "forceCodeSigning": true
+      "signAndEditExecutable": true
     },
     "nsis": {
       "oneClick": false,
