@@ -1,31 +1,31 @@
 # Atomos Mirror
 
-**Two-way local-network screen mirroring for Android and Windows.** The Android app hosts its dashboard and signalling service directly on the phone. The Windows companion is a local desktop app. No cloud hosting or account is required; both devices must share a reachable LAN/Wi-Fi network.
+**Two-way, local-network screen mirroring between Android and Windows.** The Android app hosts its own dashboard and signalling service. The Windows companion is an Electron desktop app. There is no cloud relay or account requirement. Both devices must be on a LAN that allows direct peer-to-peer traffic.
 
-## Implemented in source (0.4.0 development)
+## v0.8.0 implementation
 
-- Android-hosted dashboard on TCP 8765 and WebSocket signalling on TCP 8766.
-- Six-digit session PIN required for both signalling peers.
-- WebRTC direct peer-to-peer media negotiation. The Android phone is a signalling coordinator, not a media relay.
-- Windows Electron companion with two modes: send desktop to Android, or receive Android screen.
-- Android MediaProjection screen capture through a foreground service and WebRTC native sender.
-- Windows desktop capture through Electron display-media capture, with best-effort loopback audio.
-- Windows source picker for individual displays and windows, including multi-monitor systems.
-- Windows capture quality controls for 720p/1080p/1440p, 24/30/60 FPS and 2/4/8/12 Mbps target video bitrate.
-- mDNS/DNS-SD advertisement from Android and one-click discovery from the Windows companion.
-- Optional Android microphone audio track with an explicit runtime permission prompt.
-- Browser receiver page served from the Android app for Windows-to-Android mirroring.
+- Android foreground receiver service keeps the local dashboard, WebSocket signalling and mDNS discovery alive independently of the Activity.
+- Receiver startup state is restored when the app is reopened, and startup failures are surfaced in the Android UI.
+- Windows desktop capture supports displays and individual windows, with selectable 720p/1080p/1440p, 24/30/60 FPS and target bitrate controls.
+- Android screen capture uses MediaProjection and a foreground service.
+- Both directions use direct WebRTC media transport. Android coordinates signalling but does not relay the video stream.
+- Optional Android microphone capture is permission-gated. Windows loopback audio is best-effort.
+- Android browser receiver and Windows companion expose live bitrate, FPS, packet-loss and RTT diagnostics where WebRTC provides those metrics.
+- Signalling reconnects with bounded backoff and re-negotiates when a peer rejoins.
+- Pairing PINs are no longer published through the status API or mDNS metadata. Discovery finds the receiver address only; users enter the six-digit PIN displayed in the Android app.
+- Signalling sessions are limited to one sender and one receiver. Failed PIN attempts are rate-limited per remote IP.
 
-## Windows companion
+## Run the Windows companion
 
-Install Node.js 20 or later. In PowerShell, from the repository's `desktop` directory:
+Install Node.js 20 or later. In PowerShell, from `desktop`:
 
 ```powershell
 npm install
+npm test
 npm start
 ```
 
-To package a Windows installer:
+Build the Windows installer:
 
 ```powershell
 npm run dist
@@ -33,43 +33,36 @@ npm run dist
 
 ## Windows → Android
 
-1. Start the local receiver in the Android app.
-2. Open the displayed `http://phone-ip:8765` address in a laptop browser once.
-3. Enter the phone's LAN IP and six-digit pairing PIN in the Windows companion.
-4. Choose **Send desktop to Android**, then **Share desktop** and approve capture.
+1. Start the receiver in the Android app and note the displayed LAN address and six-digit PIN.
+2. Open that address in the Android phone's browser. The dashboard is served by the phone itself.
+3. Enter the PIN in the browser dashboard and select **Connect receiver**.
+4. In the Windows companion, discover the phone or enter its IP and PIN.
+5. Choose **Send desktop to Android**, then **Share desktop**, select a display or window and approve capture.
 
 ## Android → Windows
 
-1. Start the local receiver in the Android app.
-2. Open the Windows companion and enter the phone's LAN IP and pairing PIN.
-3. Choose **Receive Android screen**.
-4. On Android, choose **Share this Android screen to Windows** and approve the system screen-capture prompt.
+1. Start the receiver in the Android app.
+2. In the Windows companion, enter the Android IP and PIN, then choose **Receive Android screen**.
+3. In the Android app, choose **Share this Android screen to Windows** and approve Android's screen-capture prompt.
+4. Stop sharing from either device when finished.
 
-## Network
+## Network and security
 
 - TCP 8765: Android-hosted dashboard and status API.
-- TCP 8766: PIN-authenticated signalling.
-- WebRTC media: direct peer-to-peer UDP candidates. Local host candidates are used; no TURN relay is configured.
+- TCP 8766: local WebSocket signalling.
+- WebRTC media: direct peer-to-peer transport using local ICE candidates. No STUN or TURN server is configured.
+- Allow Atomos Mirror through Windows Defender Firewall on private networks. Guest Wi-Fi, client isolation, VPNs and some mesh networks can block direct connectivity.
+- The six-digit pairing PIN is intentionally shared only in the Android app UI, not in mDNS or the status API. The signalling WebSocket currently uses plain `ws://` on the local network, so use a trusted private LAN. WebRTC media is encrypted by DTLS-SRTP after peer negotiation.
 
-Allow Atomos Mirror through Windows Defender Firewall on private networks. Guest Wi-Fi, client isolation, VPNs and some mesh configurations can prevent direct peer connectivity.
+## Known limitations
 
-## Current limitations and validation
+- Android internal playback audio is not captured yet. Android microphone streaming is available as an optional audio track.
+- Windows system-audio loopback depends on Electron and Windows support and may not be available on every machine.
+- The PIN protects session pairing but is not a substitute for network-level trust; signalling is not TLS-protected.
+- mDNS discovery requires multicast support. Manual IP entry remains available.
+- WebRTC statistics vary by browser, codec and device, so individual metrics can be unavailable.
+- CI verifies compilation, packaging and source-level regression checks. Real-device Android/Windows streaming, audio quality, background behavior and vendor-specific battery restrictions still require physical-device testing.
 
-Android microphone streaming is optional and permission-gated; Android internal playback audio is not yet captured. Windows system-audio capture is best-effort and depends on Electron and Windows support. The Windows quality controls set capture constraints and a target sender bitrate, but actual negotiated quality depends on the display, codec, network and receiver. mDNS discovery depends on multicast being permitted by the Wi-Fi network. Connection recovery and receiver-service persistence still need work.
+## Build outputs
 
-Source code and CI builds are not substitutes for an end-to-end device test. Validate on a real Android phone and Windows 10/11 machine before treating this as a stable release.
-
-
-## v0.5.0 receiver lifecycle
-
-The Android LAN receiver is now owned by a dedicated foreground service rather than the launcher Activity. Starting the receiver creates a persistent notification and keeps the HTTP dashboard, WebSocket signalling endpoint, and mDNS advertisement alive when the app is backgrounded or the Activity is recreated. Stopping the receiver explicitly tears down those resources. This lifecycle change has been added to the Android CI build; real-device background/foreground behavior still needs verification on target Android versions and vendor battery-management settings.
-
-
-## v0.6.0 live connection state and recovery
-
-The signalling server now maintains a live registry of paired devices, including display name, role, connection state and connection timestamp. The local dashboard reads this registry through `/api/status` and updates its connected-device list while running. The Windows companion and Android screen sender retry lost signalling connections with bounded exponential backoff. Active streams are re-negotiated when a peer rejoins. The browser receiver also retries signalling connections with bounded exponential backoff. These changes improve recovery from transient Wi-Fi or app interruptions; they do not guarantee seamless media continuity, and real-device/network testing remains required.
-
-
-## v0.7.0 live connection diagnostics
-
-The Windows companion and Android browser receiver now collect WebRTC statistics while a peer connection is active: measured video bitrate, frame rate, packet loss (on receiving peers), and round-trip time when the selected ICE candidate pair exposes it. Android's MediaProjection sender also samples its WebRTC statistics and relays sender telemetry to paired clients over the authenticated local signalling channel. Connection-state and ICE failures now display actionable troubleshooting guidance. Metrics are sampled approximately once per second; individual fields may show unavailable when a WebRTC implementation does not expose that statistic. These diagnostics do not replace real device/network validation.
+The Android CI workflow produces a debug APK. The Windows CI workflow produces an unsigned NSIS installer. Neither artifact is a production-signed release.
