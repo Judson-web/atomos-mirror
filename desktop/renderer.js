@@ -136,7 +136,8 @@ async function connect(role = "sender", retry = false) {
       status("Paired", true);
       $("share").disabled = role !== "sender" || !stream;
       hint(role === "sender" ? "Paired. Choose Share desktop to send this PC's screen." : "Paired. Waiting for the Android phone to start sharing.");
-      if (role === "sender" && stream) await negotiateDesktopStream();
+      const hasCounterpart = Array.isArray(message.peers) && message.peers.some(device => device.role !== role);
+      if (role === "sender" && stream && hasCounterpart) await negotiateDesktopStream();
     } else if (message.type === "offer" && role === "receiver") {
       if (peer) peer.close();
       pendingCandidates = [];
