@@ -134,7 +134,7 @@ $("discover").addEventListener("click", async () => {
 $("generate-pairing").addEventListener("click", () => preparePairing($("host").value));
 async function connect(role = "sender", retry = false) {
   activeRole = role;
-  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace(/^https?:\\/\\//, "").replace(/\\/$/, "");
+  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace("http://", "").replace("https://", "").split("/")[0];
   if (!host) return hint("Find the Android receiver or enter its local network address.");
   if (!retry) {
     if (!lastPairing || lastPairing.host !== host || Date.now() > lastPairing.expiresAt) {
