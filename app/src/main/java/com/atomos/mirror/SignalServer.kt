@@ -126,6 +126,16 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
             conn.send(error("Pair before signalling"))
             return
         }
+        val type = data.optString("type")
+        val allowedForRole = when (type) {
+            "offer", "diagnostics" -> source.role == "sender"
+            "answer" -> source.role == "receiver"
+            else -> true
+        }
+        if (!allowedForRole) {
+            conn.send(error("Message type is not valid for this peer role"))
+            return
+        }
         val targets = peers.entries.filter { (socket, peer) ->
             socket != conn && socket.isOpen && peer.role != source.role
         }
