@@ -1,36 +1,56 @@
 # Atomos Mirror
 
-**Local-network screen mirroring for Android and Windows, designed to work without cloud hosting.**
+**Two-way local-network screen mirroring for Android and Windows.** The Android app hosts its dashboard and signalling service directly on the phone. The Windows companion is a local desktop app. No cloud hosting or account is required; both devices must share a reachable LAN/Wi-Fi network.
 
-The Android app hosts its dashboard and signalling endpoint directly on the phone. The Windows companion is a separate desktop app. Both devices must be on the same reachable LAN/Wi-Fi network.
+## Implemented in source (0.3.0 development)
 
-## Current implementation (0.2.0 development)
-
-- Android app with a locally served receiver dashboard.
-- Six-digit pairing PIN generated for each receiver session.
-- Local WebSocket signalling relay on port 8766. It relays SDP/ICE messages only; media is peer-to-peer.
-- Windows Electron companion with desktop/window capture via Electron's display-media API.
-- WebRTC sender in Windows and WebRTC receiver in the Android-hosted browser dashboard.
-- Windows installer configuration using electron-builder (NSIS).
+- Android-hosted dashboard on TCP 8765 and WebSocket signalling on TCP 8766.
+- Six-digit session PIN required for both signalling peers.
+- WebRTC direct peer-to-peer media negotiation. The Android phone is a signalling coordinator, not a media relay.
+- Windows Electron companion with two modes: send desktop to Android, or receive Android screen.
+- Android MediaProjection screen capture through a foreground service and WebRTC native sender.
+- Windows desktop capture through Electron display-media capture, with best-effort loopback audio.
+- Browser receiver page served from the Android app for Windows-to-Android mirroring.
 
 ## Windows companion
 
-Install Node.js 20+ on Windows. In PowerShell, from the repository's `desktop` directory run `npm install`, then `npm start`. To build an installer run `npm run dist`.
+Install Node.js 20 or later. In PowerShell, from the repository's `desktop` directory:
 
-Start the receiver in Android, open the displayed HTTP address on the laptop, and note the pairing PIN. Enter the phone's LAN IP and PIN in the Windows companion, connect, then choose **Share desktop** and approve the Windows capture prompt.
+```powershell
+npm install
+npm start
+```
+
+To package a Windows installer:
+
+```powershell
+npm run dist
+```
+
+## Windows → Android
+
+1. Start the local receiver in the Android app.
+2. Open the displayed `http://phone-ip:8765` address in a laptop browser once.
+3. Enter the phone's LAN IP and six-digit pairing PIN in the Windows companion.
+4. Choose **Send desktop to Android**, then **Share desktop** and approve capture.
+
+## Android → Windows
+
+1. Start the local receiver in the Android app.
+2. Open the Windows companion and enter the phone's LAN IP and pairing PIN.
+3. Choose **Receive Android screen**.
+4. On Android, choose **Share this Android screen to Windows** and approve the system screen-capture prompt.
 
 ## Network
 
-- TCP 8765: Android-hosted dashboard/status.
-- TCP 8766: Android-hosted WebSocket signalling.
-- WebRTC media: direct peer-to-peer UDP candidates.
+- TCP 8765: Android-hosted dashboard and status API.
+- TCP 8766: PIN-authenticated signalling.
+- WebRTC media: direct peer-to-peer UDP candidates. Local host candidates are used; no TURN relay is configured.
 
-Allow the Windows app through Windows Defender Firewall on private networks. Guest Wi-Fi, client isolation, VPNs and some mesh configurations can block local connectivity.
+Allow Atomos Mirror through Windows Defender Firewall on private networks. Guest Wi-Fi, client isolation, VPNs and some mesh configurations can prevent direct peer connectivity.
 
-## Honest implementation status
+## Current limitations and validation
 
-**Implemented in source, not yet device-validated:** Windows desktop capture flow, PIN authentication, WebSocket signalling, and browser WebRTC receiver negotiation.
+The Android native sender is video-first; Android internal audio and microphone tracks are not yet connected. The Windows app currently chooses the first available screen/window source rather than presenting a multi-monitor/source picker. Windows system-audio capture is best-effort and depends on Electron and Windows support. Automatic NSD discovery, bitrate/resolution/FPS controls, connection recovery, and receiver-service persistence still need work.
 
-**Not implemented:** Android-native screen capture and Android-to-Windows sending, foreground-service persistence, native Windows WASAPI controls, automatic discovery, advanced resolution/FPS/bitrate controls, multi-monitor picker and production hardening. Loopback audio capture is best-effort and depends on Windows/Electron capture support. The Windows app currently selects the first available screen/window source.
-
-This is not yet a production-ready release. A successful CI build and real Android/Windows end-to-end test are still required.
+Source code and CI builds are not substitutes for an end-to-end device test. Validate on a real Android phone and Windows 10/11 machine before treating this as a stable release.
