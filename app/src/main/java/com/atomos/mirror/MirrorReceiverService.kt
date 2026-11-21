@@ -27,10 +27,14 @@ class MirrorReceiverService : Service() {
     private var signalServer: SignalServer? = null
     private var nsdManager: NsdManager? = null
     private var registration: NsdManager.RegistrationListener? = null
+    @Volatile private var infrastructureReady = false
+    @Volatile private var startupError: String? = null
 
     val pairingPin: String get() = signalServer?.pairingPin ?: ""
     val httpPort: Int get() = httpServer?.listeningPort ?: HTTP_PORT
     fun localAddress(): String = httpServer?.localAddress() ?: "Starting receiver…"
+    fun statusText(): String = startupError?.let { "Receiver failed: $it" }
+        ?: if (infrastructureReady) "Ready" else "Starting receiver…"
 
     override fun onCreate() {
         super.onCreate()
@@ -63,6 +67,8 @@ class MirrorReceiverService : Service() {
     private fun startInfrastructure() {
         if (httpServer != null && signalServer != null) return
         try {
+            startupError = null
+            infrastructureReady = false
             val signalling = SignalServer(SIGNAL_PORT)
             signalling.start()
             signalServer = signalling
@@ -70,7 +76,10 @@ class MirrorReceiverService : Service() {
             http.start()
             httpServer = http
             advertiseReceiver()
+            infrastructureReady = true
         } catch (error: Exception) {
+            startupError = error.localizedMessage ?: error.javaClass.simpleName
+            infrastructureReady = false
             stopInfrastructure()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -97,6 +106,7 @@ class MirrorReceiverService : Service() {
     }
 
     private fun stopInfrastructure() {
+        infrastructureReady = false
         try { registration?.let { nsdManager?.unregisterService(it) } } catch (_: Exception) { }
         registration = null
         nsdManager = null
