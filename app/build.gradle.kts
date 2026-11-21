@@ -15,6 +15,7 @@ android {
    keyPassword = System.getenv("ATOMOS_SIGNING_KEY_PASSWORD") ?: ""
   }
  }
+ buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release"); isMinifyEnabled = false } }
  buildFeatures { compose = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }
