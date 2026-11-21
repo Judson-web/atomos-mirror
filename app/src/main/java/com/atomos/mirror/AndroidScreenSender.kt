@@ -61,14 +61,14 @@ class AndroidScreenSender(
         }) ?: error("Unable to create WebRTC peer connection")
 
         videoSource = factory!!.createVideoSource(true)
-        videoTrack = factory!!.createVideoTrack("atomos-screen", videoSource)
-        peer!!.addTrack(videoTrack, listOf("atomos-screen-stream"))
+        videoTrack = factory!!.createVideoTrack("atomos-screen", videoSource!!)
+        peer!!.addTrack(videoTrack!!, listOf("atomos-screen-stream"))
 
         textureHelper = SurfaceTextureHelper.create("AtomosScreenCapture", egl!!.eglBaseContext)
         capturer = ScreenCapturerAndroid(projectionData, object : android.media.projection.MediaProjection.Callback() {
             override fun onStop() { stop() }
         })
-        capturer!!.initialize(textureHelper, context, videoSource!!.capturerObserver)
+        capturer!!.initialize(textureHelper!!, context, videoSource!!.capturerObserver)
         capturer!!.startCapture(1280, 720, 30)
 
         socket = object : WebSocketClient(URI("ws://127.0.0.1:8766")) {
