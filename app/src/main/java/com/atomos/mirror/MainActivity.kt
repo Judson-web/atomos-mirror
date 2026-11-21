@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                 secondary = Color(0xFF75DDB7)
             )) {
                 MirrorApp(
-                    initialHosting = receiverPrefs.getBoolean("receiver_enabled", false),
+                    initialHosting = receiverPrefs.getBoolean("receiver_enabled", false) || receiverPrefs.getBoolean("auto_start_receiver", false),
                     initialMicrophone = receiverPrefs.getBoolean("microphone_enabled", false),
                     initialAutoStart = receiverPrefs.getBoolean("auto_start_receiver", false),
                     serviceRevision = serviceRevision.intValue,
@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        if (receiverPrefs.getBoolean("auto_start_receiver", false)) startReceiver()
+        if (receiverPrefs.getBoolean("receiver_enabled", false) || receiverPrefs.getBoolean("auto_start_receiver", false)) startReceiver()
     }
 
     private fun receiverSnapshot(): ReceiverSnapshot {
