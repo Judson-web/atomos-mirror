@@ -67,7 +67,7 @@ async function atomosReceiver(){
  let pin=document.querySelector('#am-pin');if(!pin){pin=document.createElement('p');pin.id='am-pin';pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';panel.insertBefore(pin,video)}pin.textContent='Pairing PIN: '+s.pairingPin;
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
- ws.onopen=()=>{retry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
+ ws.onopen=()=>{browserRetry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
  ws.onmessage=async e=>{
   const m=JSON.parse(e.data);
   if(m.type==='offer'){
