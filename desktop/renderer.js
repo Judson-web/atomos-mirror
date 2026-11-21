@@ -34,6 +34,21 @@ async function refreshSources() {
 }
 $("source").addEventListener("change", () => window.atomos.selectSource($("source").value));
 $("refresh-sources").addEventListener("click", refreshSources);
+$("discover").addEventListener("click", async () => {
+  $("discover").disabled = true;
+  hint("Searching the local Wi-Fi network for Atomos Mirror…");
+  try {
+    const devices = await window.atomos.discover();
+    if (!devices.length) hint("No receiver found. Check that both devices share Wi-Fi and the Android receiver is running.");
+    else {
+      const d = devices[0];
+      $("host").value = d.host;
+      if (d.pin) $("pin").value = d.pin;
+      hint("Found " + d.name + " at " + d.host + ". Pairing details filled in.");
+    }
+  } catch (error) { hint("Discovery failed: " + error.message); }
+  finally { $("discover").disabled = false; }
+});
 
 async function connect(role = "sender") {
   activeRole = role;
