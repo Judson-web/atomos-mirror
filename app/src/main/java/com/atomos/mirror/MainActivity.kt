@@ -96,8 +96,8 @@ class MainActivity : ComponentActivity() {
             serviceName = "Atomos-Mirror"
             serviceType = "_atomosmirror._tcp."
             port = 8765
-            setAttribute("pin", pin.toByteArray())
-            setAttribute("signalPort", "8766".toByteArray())
+            setAttribute("pin", pin)
+            setAttribute("signalPort", "8766")
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {}
