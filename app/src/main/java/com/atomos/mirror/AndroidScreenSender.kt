@@ -36,6 +36,7 @@ class AndroidScreenSender(
     @Volatile private var reconnectAttempts = 0
     private val statsExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var previousBytesSent = -1L
+    @Volatile private var previousFramesEncoded = -1L
     @Volatile private var previousStatsAt = 0L
 
     fun start() {
@@ -151,6 +152,7 @@ class AndroidScreenSender(
                 try {
                     var bytesSent = 0L
                     var fps = 0.0
+                    var framesEncoded = 0L
                     var packetLoss = 0L
                     var rttSeconds = -1.0
                     report.statsMap.values.forEach { stat ->
@@ -158,8 +160,8 @@ class AndroidScreenSender(
                         when (stat.type) {
                             "outbound-rtp" -> {
                                 bytesSent += (members["bytesSent"] as? Number)?.toLong() ?: 0L
-                                fps = (members["framesPerSecond"] as? Number)?.toDouble()
-                                    ?: (members["framesEncoded"] as? Number)?.toDouble() ?: fps
+                                fps = (members["framesPerSecond"] as? Number)?.toDouble() ?: fps
+                                framesEncoded += (members["framesEncoded"] as? Number)?.toLong() ?: 0L
                             }
                             "remote-inbound-rtp" -> {
                                 packetLoss += (members["packetsLost"] as? Number)?.toLong() ?: 0L
@@ -172,10 +174,12 @@ class AndroidScreenSender(
                         }
                     }
                     val now = System.currentTimeMillis()
-                    val bitrate = if (previousBytesSent >= 0 && previousStatsAt > 0 && now > previousStatsAt)
-                        ((bytesSent - previousBytesSent).coerceAtLeast(0) * 8.0 / ((now - previousStatsAt) / 1000.0)).toLong()
-                    else -1L
+                    val elapsedSeconds = if (previousStatsAt > 0 && now > previousStatsAt) (now - previousStatsAt) / 1000.0 else 0.0
+                    val bitrate = if (previousBytesSent >= 0 && elapsedSeconds > 0)
+                        ((bytesSent - previousBytesSent).coerceAtLeast(0) * 8.0 / elapsedSeconds).toLong() else -1L
+                    if (fps <= 0 && previousFramesEncoded >= 0 && elapsedSeconds > 0) fps = ((framesEncoded - previousFramesEncoded).coerceAtLeast(0) / elapsedSeconds)
                     previousBytesSent = bytesSent
+                    previousFramesEncoded = framesEncoded
                     previousStatsAt = now
                     val payload = JSONObject().put("type", "diagnostics")
                         .put("source", "Android sender")
