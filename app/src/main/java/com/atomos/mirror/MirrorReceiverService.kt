@@ -66,10 +66,10 @@ class MirrorReceiverService : Service() {
             val signalling = SignalServer(SIGNAL_PORT)
             signalling.start()
             signalServer = signalling
-            val http = LocalReceiverServer(applicationContext, HTTP_PORT, signalling.pairingPin) { signalling.devicesJson() }
+            val http = LocalReceiverServer(applicationContext, HTTP_PORT) { signalling.devicesJson() }
             http.start()
             httpServer = http
-            advertiseReceiver(signalling.pairingPin)
+            advertiseReceiver()
         } catch (error: Exception) {
             stopInfrastructure()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -77,14 +77,13 @@ class MirrorReceiverService : Service() {
         }
     }
 
-    private fun advertiseReceiver(pin: String) {
+    private fun advertiseReceiver() {
         val manager = getSystemService(NSD_SERVICE) as NsdManager
         nsdManager = manager
         val info = NsdServiceInfo().apply {
             serviceName = "Atomos-Mirror"
             serviceType = "_atomosmirror._tcp."
             port = HTTP_PORT
-            setAttribute("pin", pin)
             setAttribute("signalPort", SIGNAL_PORT.toString())
         }
         val listener = object : NsdManager.RegistrationListener {
