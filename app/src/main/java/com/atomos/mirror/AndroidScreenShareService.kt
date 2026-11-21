@@ -40,7 +40,7 @@ class AndroidScreenShareService : Service() {
         else startForeground(NOTIFICATION_ID, notification)
 
         sender?.stop()
-        sender = AndroidScreenSender(applicationContext, projection, pin)
+        sender = AndroidScreenSender(applicationContext, projection, pin, intent.getBooleanExtra(EXTRA_MICROPHONE, false))
         try { sender?.start() } catch (_: Exception) { sender?.stop(); sender = null; stopSelf() }
         return START_NOT_STICKY
     }
@@ -62,6 +62,7 @@ class AndroidScreenShareService : Service() {
     companion object {
         const val EXTRA_PROJECTION = "projection_data"
         const val EXTRA_PIN = "pairing_pin"
+        const val EXTRA_MICROPHONE = "microphone_enabled"
         const val ACTION_STOP = "com.atomos.mirror.STOP_SCREEN_SHARE"
         private const val CHANNEL_ID = "atomos_screen_share"
         private const val NOTIFICATION_ID = 701
