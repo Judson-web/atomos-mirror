@@ -26,6 +26,7 @@ class AndroidScreenShareService : Service() {
             intent?.getParcelableExtra(EXTRA_PROJECTION)
         }
         val pairingToken = intent?.getStringExtra(EXTRA_PAIRING_TOKEN)
+        val audioProjection = intent?.getParcelableExtraCompat(EXTRA_AUDIO_PROJECTION)
         if (projection == null || pairingToken.isNullOrBlank()) { stopSelf(); return START_NOT_STICKY }
 
         createChannel()
@@ -40,7 +41,7 @@ class AndroidScreenShareService : Service() {
         else startForeground(NOTIFICATION_ID, notification)
 
         sender?.stop()
-        sender = AndroidScreenSender(applicationContext, projection, pairingToken, intent.getBooleanExtra(EXTRA_MICROPHONE, false))
+        sender = AndroidScreenSender(applicationContext, projection, pairingToken, intent.getBooleanExtra(EXTRA_MICROPHONE, false), audioProjection)
         try { sender?.start() } catch (_: Exception) { sender?.stop(); sender = null; stopSelf() }
         return START_NOT_STICKY
     }
@@ -59,7 +60,14 @@ class AndroidScreenShareService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun Intent.getParcelableExtraCompat(key: String): Intent? =
+        if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, Intent::class.java) else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra(key)
+        }
+
     companion object {
+        const val EXTRA_AUDIO_PROJECTION = "audio_projection_data"
         const val EXTRA_PROJECTION = "projection_data"
         const val EXTRA_PAIRING_TOKEN = "pairing_token"
         const val EXTRA_MICROPHONE = "microphone_enabled"

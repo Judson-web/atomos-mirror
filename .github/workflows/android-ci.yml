@@ -21,6 +21,24 @@ jobs:
           gradle-version: '8.13'
       - name: Build debug APK
         run: gradle assembleDebug
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate embedded laptop dashboard JavaScript
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('app/src/main/java/com/atomos/mirror/LocalReceiverServer.kt', 'utf8');
+          const match = source.match(/private val DASHBOARD = """([\s\S]*?)"""\.trimIndent\(\)/);
+          if (!match) throw new Error('Dashboard HTML block was not found');
+          const scripts = [...match[1].matchAll(/<script>([\s\S]*?)<\/script>/g)];
+          if (scripts.length !== 1) throw new Error('Expected exactly one dashboard script, found ' + scripts.length);
+          new Function(scripts[0][1]);
+          for (const required of ['Generate pairing QR', 'Connect phone', 'playPcm', 'apply-quality']) {
+            if (!match[1].includes(required)) throw new Error('Missing dashboard feature: ' + required);
+          }
+          console.log('Laptop dashboard JavaScript syntax and key controls verified.');
+          NODE
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

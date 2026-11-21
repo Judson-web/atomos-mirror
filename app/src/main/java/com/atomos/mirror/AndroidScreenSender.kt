@@ -2,6 +2,16 @@ package com.atomos.mirror
 
 import android.content.Context
 import android.content.Intent
+import android.app.Activity
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.media.AudioPlaybackCaptureConfiguration
+import android.os.Build
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -18,7 +28,8 @@ class AndroidScreenSender(
     private val context: Context,
     private val projectionData: Intent,
     private val pairingToken: String,
-    private val microphoneEnabled: Boolean = false
+    private val microphoneEnabled: Boolean = false,
+    private val audioProjectionData: Intent? = null
 ) {
     private var factory: PeerConnectionFactory? = null
     private var peer: PeerConnection? = null
@@ -27,6 +38,11 @@ class AndroidScreenSender(
     private var videoTrack: VideoTrack? = null
     private var microphoneSource: AudioSource? = null
     private var microphoneTrack: AudioTrack? = null
+    private var playbackProjection: MediaProjection? = null
+    private var playbackRecord: AudioRecord? = null
+    @Volatile private var playbackRunning = false
+    private var playbackThread: Thread? = null
+    private var videoSender: RtpSender? = null
     private var textureHelper: SurfaceTextureHelper? = null
     private var egl: EglBase? = null
     private var socket: WebSocketClient? = null
@@ -77,7 +93,7 @@ class AndroidScreenSender(
 
         videoSource = factory!!.createVideoSource(true)
         videoTrack = factory!!.createVideoTrack("atomos-screen", videoSource!!)
-        peer!!.addTrack(videoTrack!!, listOf("atomos-screen-stream"))
+        videoSender = peer!!.addTrack(videoTrack!!, listOf("atomos-screen-stream"))
         if (microphoneEnabled) {
             val audioConstraints = MediaConstraints().apply {
                 mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
@@ -120,6 +136,7 @@ class AndroidScreenSender(
                     val json = JSONObject(message)
                     when (json.optString("type")) {
                         "joined" -> {
+                            startInternalAudioCapture()
                             val peers = json.optJSONArray("peers")
                             val receiverPresent = peers != null && (0 until peers.length()).any {
                                 peers.optJSONObject(it)?.optString("role") == "receiver"
@@ -132,6 +149,7 @@ class AndroidScreenSender(
                                 while (pendingRemoteIce.isNotEmpty()) peer?.addIceCandidate(pendingRemoteIce.poll())
                             }
                         }, SessionDescription(SessionDescription.Type.ANSWER, json.getJSONObject("description").getString("sdp")))
+                        "settings" -> applyStreamProfile(json.optString("profile", "balanced"))
                         "ice" -> {
                             val c = json.getJSONObject("candidate")
                             val candidate = IceCandidate(c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate"))
@@ -155,6 +173,89 @@ class AndroidScreenSender(
             reconnectPending.set(false)
             if (!stopped) connectSignalling()
         }, waitSeconds, TimeUnit.SECONDS)
+    }
+
+
+    private fun applyStreamProfile(profile: String) {
+        val config = when (profile) {
+            "smooth" -> Triple(1280, 720, 30)
+            "high" -> Triple(1920, 1080, 60)
+            else -> Triple(1920, 1080, 30)
+        }
+        try { capturer?.changeCaptureFormat(config.first, config.second, config.third) } catch (_: Exception) { }
+        val targetBitrate = when (profile) {
+            "smooth" -> 2_500_000
+            "high" -> 8_000_000
+            else -> 5_000_000
+        }
+        try {
+            val params = videoSender?.parameters
+            params?.encodings?.forEach { it.maxBitrateBps = targetBitrate }
+            if (params != null) videoSender?.setParameters(params)
+        } catch (_: Exception) { }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
+    private fun startInternalAudioCapture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || audioProjectionData == null || playbackRunning || stopped) return
+        try {
+            val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = manager.getMediaProjection(Activity.RESULT_OK, audioProjectionData) ?: return
+            playbackProjection = projection
+            val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .build()
+            val format = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(AUDIO_SAMPLE_RATE)
+                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                .build()
+            val minimum = AudioRecord.getMinBufferSize(
+                AUDIO_SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            ).coerceAtLeast(AUDIO_FRAME_BYTES * 4)
+            val record = AudioRecord.Builder()
+                .setAudioFormat(format)
+                .setBufferSizeInBytes(minimum * 2)
+                .setAudioPlaybackCaptureConfig(captureConfig)
+                .build()
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                record.release()
+                projection.stop()
+                playbackProjection = null
+                return
+            }
+            playbackRecord = record
+            record.startRecording()
+            playbackRunning = true
+            playbackThread = Thread({
+                val samples = ShortArray(AUDIO_FRAME_SAMPLES)
+                while (playbackRunning && !stopped) {
+                    val count = try { record.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING) } catch (_: Exception) { -1 }
+                    if (count <= 0) continue
+                    val frame = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN)
+                    for (i in 0 until count) frame.putShort(samples[i])
+                    frame.flip()
+                    try {
+                        val active = socket
+                        if (active?.isOpen == true) active.send(frame)
+                    } catch (_: Exception) { }
+                }
+            }, "AtomosPlaybackAudio").apply { isDaemon = true; start() }
+        } catch (_: Exception) {
+            stopInternalAudioCapture()
+        }
+    }
+
+    private fun stopInternalAudioCapture() {
+        playbackRunning = false
+        try { playbackRecord?.stop() } catch (_: Exception) { }
+        try { playbackThread?.join(350) } catch (_: Exception) { }
+        try { playbackRecord?.release() } catch (_: Exception) { }
+        playbackRecord = null
+        playbackThread = null
+        try { playbackProjection?.stop() } catch (_: Exception) { }
+        playbackProjection = null
     }
 
     private fun collectStats() {
@@ -227,6 +328,7 @@ class AndroidScreenSender(
     fun stop() {
         if (stopped) return
         stopped = true
+        stopInternalAudioCapture()
         reconnectExecutor.shutdownNow()
         statsExecutor.shutdownNow()
         reconnectPending.set(false)
@@ -236,6 +338,11 @@ class AndroidScreenSender(
         try { videoTrack?.dispose(); videoSource?.dispose(); microphoneTrack?.dispose(); microphoneSource?.dispose() } catch (_: Exception) {}
         try { capturer?.dispose(); textureHelper?.dispose() } catch (_: Exception) {}
         try { factory?.dispose(); egl?.release() } catch (_: Exception) {}
+    }
+    companion object {
+        private const val AUDIO_SAMPLE_RATE = 48_000
+        private const val AUDIO_FRAME_SAMPLES = 480
+        private const val AUDIO_FRAME_BYTES = AUDIO_FRAME_SAMPLES * 2
     }
 }
 

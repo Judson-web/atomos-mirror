@@ -1,20 +1,18 @@
-name: Signed Release Candidate
-
+name: Android Signed Release
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: atomos-signed-release-${{ github.ref }}
+  group: atomos-android-release-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   android-release:
-    name: Signed Android APK
+    name: Build and verify Android APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +76,7 @@ jobs:
           fi
       - name: Build signed release APK
         run: gradle assembleRelease
-      - name: Verify and prepare APK
+      - name: Verify APK signature and checksum
         shell: bash
         run: |
           set -euo pipefail
@@ -87,113 +85,18 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           mkdir -p release-output
-          cp "$APK" "release-output/Atomos-Mirror-Android-v1.1.0.apk"
+          cp "$APK" "release-output/Atomos-Mirror-Android-v1.2.0.apk"
           sha256sum release-output/*.apk > release-output/SHA256SUMS.txt
-          echo "Android APK signature verified by apksigner."
-      - name: Upload signed Android release
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: atomos-mirror-android-v1.1.0
+          name: atomos-mirror-android-v1.2.0
           path: release-output/*
           retention-days: 30
-      - name: Upload first-run Android signing material
+      - name: Upload first-run signing identity
         if: env.ANDROID_SIGNING_MATERIAL == 'generated'
         uses: actions/upload-artifact@v4
         with:
           name: atomos-mirror-android-signing-material
           path: ${{ runner.temp }}/atomos-android-signing-material.zip
-          retention-days: 7
-
-  windows-release:
-    name: Signed Windows installer
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: desktop/package.json
-      - name: Install desktop dependencies
-        run: npm install
-        working-directory: desktop
-      - name: Run regression tests
-        run: npm test
-        working-directory: desktop
-      - name: Prepare Windows code-signing certificate
-        shell: pwsh
-        env:
-          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $signDir = Join-Path $env:RUNNER_TEMP "atomos-signing"
-          New-Item -ItemType Directory -Force -Path $signDir | Out-Null
-          $pfxPath = Join-Path $signDir "atomos-codesign.pfx"
-          $cerPath = Join-Path $signDir "atomos-codesign.cer"
-          if ($env:WINDOWS_CERT_PFX_BASE64) {
-            if (-not $env:WINDOWS_CERT_PASSWORD) { throw "WINDOWS_CERT_PASSWORD is required with WINDOWS_CERT_PFX_BASE64." }
-            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
-            $secure = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -Force -AsPlainText
-            $imported = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $secure
-            Export-Certificate -Cert $imported[0] -FilePath $cerPath | Out-Null
-            "WINDOWS_SIGNING_MATERIAL=provided" | Out-File -FilePath $env:GITHUB_ENV -Append
-            $password = $env:WINDOWS_CERT_PASSWORD
-          } else {
-            $password = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
-            $secure = ConvertTo-SecureString -String $password -Force -AsPlainText
-            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Atomos Mirror Internal Testing" -CertStoreLocation Cert:\CurrentUser\My -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(5)
-            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $secure | Out-Null
-            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
-            $materialDir = Join-Path $env:RUNNER_TEMP "atomos-windows-signing-material"
-            New-Item -ItemType Directory -Force -Path $materialDir | Out-Null
-            Copy-Item $pfxPath $materialDir
-            Copy-Item $cerPath $materialDir
-            @(
-              "KEEP THESE FILES PRIVATE. This is the signing identity for the internal test installer."
-              "WINDOWS_CERT_PASSWORD=$password"
-              "WINDOWS_CERT_PFX_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($pfxPath)))"
-            ) | Set-Content -Path (Join-Path $materialDir "windows-signing-secrets.txt")
-            Compress-Archive -Path (Join-Path $materialDir "*") -DestinationPath (Join-Path $env:RUNNER_TEMP "atomos-windows-signing-material.zip") -Force
-            "WINDOWS_SIGNING_MATERIAL=generated" | Out-File -FilePath $env:GITHUB_ENV -Append
-          }
-          "CSC_LINK=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "CSC_KEY_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "ATOMOS_CERT_PATH=$cerPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Build signed Windows installer
-        run: npm run dist
-        working-directory: desktop
-      - name: Verify Authenticode signature and prepare release files
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $dist = Join-Path $env:GITHUB_WORKSPACE "desktop/dist"
-          $installers = @(Get-ChildItem -Path $dist -Filter "*.exe" -File)
-          if ($installers.Count -eq 0) { throw "No Windows installer was produced." }
-          foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
-            if ($null -eq $signature.SignerCertificate -or $signature.Status -eq "NotSigned") {
-              throw "Installer is not Authenticode-signed: $($installer.Name)"
-            }
-            Write-Host "$($installer.Name): signature present; certificate subject $($signature.SignerCertificate.Subject); status $($signature.Status)"
-          }
-          Copy-Item $env:ATOMOS_CERT_PATH $dist
-          Get-FileHash -Algorithm SHA256 (Join-Path $dist "*.exe") |
-            ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
-            Set-Content (Join-Path $dist "SHA256SUMS.txt")
-      - name: Upload signed Windows release
-        uses: actions/upload-artifact@v4
-        with:
-          name: atomos-mirror-windows-v1.1.0
-          path: |
-            desktop/dist/*.exe
-            desktop/dist/*.cer
-            desktop/dist/SHA256SUMS.txt
-          retention-days: 30
-      - name: Upload first-run Windows signing material
-        if: env.WINDOWS_SIGNING_MATERIAL == 'generated'
-        uses: actions/upload-artifact@v4
-        with:
-          name: atomos-mirror-windows-signing-material
-          path: ${{ runner.temp }}/atomos-windows-signing-material.zip
           retention-days: 7
