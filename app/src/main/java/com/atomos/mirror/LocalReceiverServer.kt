@@ -32,7 +32,12 @@ class LocalReceiverServer(
             else jsonResponse(JSONObject().put("approved", true).put("token", token).put("signalPort", 8766))
         }
         "/api/pairing/qr.png" -> {
-            val payload = pairingChallenge(localAddress()).put("httpPort", listeningPort).toString()
+            val token = session.parameters["token"]?.firstOrNull().orEmpty()
+            val expiresAt = session.parameters["expiresAt"]?.firstOrNull()?.toLongOrNull() ?: 0L
+            val payload = JSONObject().put("type", "atomos-pair").put("version", 1)
+                .put("host", localAddress()).put("signalPort", 8766)
+                .put("httpPort", listeningPort).put("token", token)
+                .put("expiresAt", expiresAt).toString()
             val bytes = createQrPng(payload)
             newFixedLengthResponse(Response.Status.OK, "image/png", ByteArrayInputStream(bytes), bytes.size.toLong()).apply {
                 addHeader("Cache-Control", "no-store")
