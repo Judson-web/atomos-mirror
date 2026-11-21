@@ -35,6 +35,7 @@ test("signalling limits a session to one sender and one receiver", () => {
   assert.match(signal, /it\.role == role/);
   assert.match(signal, /peer\.role != source\.role/);
   assert.match(signal, /MAX_PIN_FAILURES = 5/);
+  assert.match(signal, /allowedForRole/);
   const androidSender = read("app/src/main/java/com/atomos/mirror/AndroidScreenSender.kt");
   const desktopSender = read("desktop/renderer.js");
   assert.match(androidSender, /receiverPresent/);
