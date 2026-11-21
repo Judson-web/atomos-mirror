@@ -64,7 +64,7 @@ panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eab
 panel.appendChild(video);main.appendChild(panel);
 async function atomosReceiver(){
  const s=await (await fetch('/api/status',{cache:'no-store'})).json();
- const pin=document.createElement('p');pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';pin.textContent='Pairing PIN: '+s.pairingPin;panel.insertBefore(pin,video);
+ let pin=document.querySelector('#am-pin');if(!pin){pin=document.createElement('p');pin.id='am-pin';pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';panel.insertBefore(pin,video)}pin.textContent='Pairing PIN: '+s.pairingPin;
  ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
  const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
  ws.onopen=()=>{retry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
@@ -78,10 +78,10 @@ async function atomosReceiver(){
    await pc.setRemoteDescription(m.description);for(const c of iceQueue)await pc.addIceCandidate(c);iceQueue=[];
    const answer=await pc.createAnswer();await pc.setLocalDescription(answer);send({type:'answer',description:pc.localDescription});
   }else if(m.type==='ice'&&m.candidate&&pc){const c=new RTCIceCandidate(m.candidate);if(pc.remoteDescription)await pc.addIceCandidate(c);else iceQueue.push(c)}
-  else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'};
+  else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'}
   else if(m.type==='error')document.querySelector('#am-state').textContent=m.message;
  };
- let retry=0,retryTimer=null;ws.onclose=()=>{document.querySelector('#am-state').textContent='Signalling disconnected · retrying';if(pc){pc.close();pc=null}video.srcObject=null;clearTimeout(retryTimer);retryTimer=setTimeout(()=>{retry=Math.min(retry+1,8);atomosReceiver().catch(()=>{})},Math.min(1000*Math.pow(2,retry),20000))};ws.onopen=()=>{retry=0;send({type:'hello',role:'receiver',pin:s.pairingPin,name:'Android browser receiver'})};
+ ws.onclose=()=>{document.querySelector('#am-state').textContent='Signalling disconnected · retrying';if(pc){pc.close();pc=null}video.srcObject=null;clearTimeout(browserRetryTimer);const wait=Math.min(1000*Math.pow(2,browserRetry),20000);browserRetry=Math.min(browserRetry+1,8);browserRetryTimer=setTimeout(()=>atomosReceiver().catch(()=>{}),wait)};
 }
 atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message);
         </script>
