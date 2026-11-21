@@ -20,6 +20,9 @@ jobs:
       - name: Install desktop dependencies
         run: npm install
         working-directory: desktop
+      - name: Run regression tests
+        run: npm test
+        working-directory: desktop
       - name: Build Windows installer
         run: npm run dist
         working-directory: desktop
