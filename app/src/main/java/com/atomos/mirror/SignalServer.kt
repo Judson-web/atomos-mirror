@@ -1,18 +1,29 @@
 package com.atomos.mirror
 
-import fi.iki.elonen.NanoHTTPD
 import org.java_websocket.WebSocket
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.security.SecureRandom
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/** Small LAN-only signalling relay. Media never passes through this server. */
+/** LAN-only signalling relay and live peer registry. Media never passes through this server. */
 class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.0", port)) {
+    data class Peer(val id: String, val name: String, val role: String, val connectedAt: Long)
     val pairingPin: String = (100000 + SecureRandom().nextInt(900000)).toString()
-    private val roles = ConcurrentHashMap<WebSocket, String>()
+    private val peers = ConcurrentHashMap<WebSocket, Peer>()
+
+    fun devicesJson(): JSONArray {
+        val result = JSONArray()
+        peers.values.sortedBy { it.connectedAt }.forEach { peer ->
+            result.put(JSONObject().put("id", peer.id).put("name", peer.name)
+                .put("role", peer.role).put("state", "connected").put("connectedAt", peer.connectedAt))
+        }
+        return result
+    }
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
         conn.send(JSONObject().put("type", "challenge").put("message", "Send hello with role and pairing PIN").toString())
@@ -30,14 +41,20 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
                     if (data.optString("pin") != pairingPin) {
                         conn.send(error("Incorrect pairing PIN")); conn.close(1008, "Pairing rejected"); return
                     }
-                    roles[conn] = role
-                    conn.send(JSONObject().put("type", "joined").put("role", role).toString())
-                    broadcast(JSONObject().put("type", "peer").put("role", role).put("state", "joined"), conn)
+                    val peer = Peer(UUID.randomUUID().toString(), data.optString("name").ifBlank { "Unknown device" }.take(80), role, System.currentTimeMillis())
+                    peers[conn] = peer
+                    conn.send(JSONObject().put("type", "joined").put("role", role).put("deviceId", peer.id)
+                        .put("peers", devicesJson()).toString())
+                    broadcast(JSONObject().put("type", "peer").put("deviceId", peer.id).put("name", peer.name)
+                        .put("role", role).put("state", "joined"), conn)
                 }
                 "offer", "answer", "ice", "hangup" -> {
-                    if (!roles.containsKey(conn)) { conn.send(error("Pair before signalling")); return }
-                    val clean = JSONObject(message)
-                    broadcast(clean, conn)
+                    if (!peers.containsKey(conn)) { conn.send(error("Pair before signalling")); return }
+                    broadcast(JSONObject(message), conn)
+                }
+                "heartbeat" -> {
+                    val peer = peers[conn] ?: run { conn.send(error("Pair before heartbeat")); return }
+                    conn.send(JSONObject().put("type", "heartbeat_ack").put("deviceId", peer.id).put("at", System.currentTimeMillis()).toString())
                 }
                 else -> conn.send(error("Unknown message type"))
             }
@@ -45,8 +62,9 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
     }
 
     override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {
-        val role = roles.remove(conn) ?: return
-        broadcast(JSONObject().put("type", "peer").put("role", role).put("state", "left"), conn)
+        val peer = peers.remove(conn) ?: return
+        broadcast(JSONObject().put("type", "peer").put("deviceId", peer.id).put("name", peer.name)
+            .put("role", peer.role).put("state", "left"), conn)
     }
 
     override fun onError(conn: WebSocket?, ex: Exception) { }
@@ -54,7 +72,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
 
     private fun broadcast(json: JSONObject, except: WebSocket) {
         val payload = json.toString()
-        connections.filter { it != except && it.isOpen && roles.containsKey(it) }.forEach {
+        connections.filter { it != except && it.isOpen && peers.containsKey(it) }.forEach {
             try { it.send(payload) } catch (_: Exception) { }
         }
     }
