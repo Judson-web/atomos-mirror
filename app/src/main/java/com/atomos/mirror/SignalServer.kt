@@ -15,7 +15,7 @@ import java.util.UUID
  * LAN-only signalling coordinator. A short-lived QR challenge must be approved
  * by the Android app before either peer can join. Media never passes through here.
  */
-class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.0", port)) {
+class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.0", port)) {\n    private val signalPort = port
     data class Peer(val id: String, val name: String, val role: String, val connectedAt: Long)
     private val peers = ConcurrentHashMap<WebSocket, Peer>()
     private data class AuthWindow(var startedAt: Long, var failures: Int, var blockedUntil: Long = 0L)
@@ -38,7 +38,7 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
             .put("type", "atomos-pair")
             .put("version", 1)
             .put("host", host)
-            .put("signalPort", listeningPort)
+            .put("signalPort", signalPort)
             .put("token", challengeToken)
             .put("expiresAt", challengeExpiresAt)
     }
