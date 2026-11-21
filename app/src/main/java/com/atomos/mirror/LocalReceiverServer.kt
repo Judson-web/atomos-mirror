@@ -8,14 +8,15 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /** Local-only HTTP dashboard hosted by the Android device. */
-class LocalReceiverServer(context: Context, port: Int = 8765) : NanoHTTPD("0.0.0.0", port) {
+class LocalReceiverServer(context: Context, port: Int = 8765, private val pairingPin: String = "------") : NanoHTTPD("0.0.0.0", port) {
     override fun serve(session: IHTTPSession): Response = when (session.uri) {
         "/api/status" -> newFixedLengthResponse(
             Response.Status.OK, "application/json; charset=utf-8",
             JSONObject().put("name", "Atomos Mirror").put("status", "online")
                 .put("host", localAddress()).put("port", listeningPort)
-                .put("devices", JSONArray()).put("transport", "local-network")
-                .put("streamingReady", false).toString()
+                .put("signalPort", 8766).put("pairingPin", pairingPin)
+                .put("devices", JSONArray()).put("transport", "local-webrtc")
+                .put("streamingReady", true).toString()
         )
         "/health" -> newFixedLengthResponse(Response.Status.OK, "text/plain", "ok")
         "/", "/index.html" -> newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", DASHBOARD)
@@ -52,6 +53,38 @@ main{max-width:1050px;margin:auto;padding:42px 24px}.top{display:flex;align-item
 <aside class="panel"><h3>Receiver details</h3><div class="stat"><span>Network</span><b>Local Wi-Fi</b></div><div class="stat"><span>Server</span><b id="server">Starting…</b></div><div class="stat"><span>Media stream</span><b>Not connected</b></div><div class="address" id="address">Loading address…</div><button class="copy" onclick="navigator.clipboard?.writeText(location.href)">Copy receiver address</button></aside></section>
 <footer>Private local-network dashboard · Served by your Android device · No cloud account required.<br>Media streaming becomes available after sender pairing and WebRTC integration.</footer></main>
 <script>async function refresh(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.querySelector('#server').textContent=s.status==='online'?'Online':'Offline';document.querySelector('#address').textContent='http://'+s.host+':'+s.port;document.querySelector('#count').textContent='· '+s.devices.length+' devices'}catch(e){document.querySelector('#server').textContent='Unavailable'}}refresh();setInterval(refresh,3000);</script></body></html>
+        <script>
+let pc=null,ws=null,iceQueue=[];
+const video=document.createElement('video');
+video.autoplay=true;video.playsInline=true;video.controls=true;
+video.style.cssText='display:block;width:100%;max-height:65vh;background:#05080f;border-radius:14px;margin:18px 0;object-fit:contain';
+const main=document.querySelector('main');
+const panel=document.createElement('section');panel.style.cssText='background:#111a2b;border:1px solid #25324a;border-radius:20px;padding:20px;margin-top:18px';
+panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p>';
+panel.appendChild(video);main.appendChild(panel);
+async function atomosReceiver(){
+ const s=await (await fetch('/api/status',{cache:'no-store'})).json();
+ const pin=document.createElement('p');pin.style.cssText='font-size:24px;letter-spacing:5px;color:#8eafff;font-weight:800';pin.textContent='Pairing PIN: '+s.pairingPin;panel.insertBefore(pin,video);
+ ws=new WebSocket('ws://'+s.host+':'+s.signalPort);
+ const send=m=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(m))};
+ ws.onopen=()=>send({type:'hello',role:'receiver',name:'Android browser receiver'});
+ ws.onmessage=async e=>{
+  const m=JSON.parse(e.data);
+  if(m.type==='offer'){
+   if(pc)pc.close();pc=new RTCPeerConnection({iceServers:[]});
+   pc.ontrack=ev=>{video.srcObject=ev.streams[0];video.play().catch(()=>{});document.querySelector('#am-state').textContent='Receiving desktop stream'};
+   pc.onicecandidate=ev=>{if(ev.candidate)send({type:'ice',candidate:ev.candidate})};
+   pc.onconnectionstatechange=()=>{document.querySelector('#am-state').textContent='WebRTC: '+pc.connectionState};
+   await pc.setRemoteDescription(m.description);for(const c of iceQueue)await pc.addIceCandidate(c);iceQueue=[];
+   const answer=await pc.createAnswer();await pc.setLocalDescription(answer);send({type:'answer',description:pc.localDescription});
+  }else if(m.type==='ice'&&m.candidate&&pc){const c=new RTCIceCandidate(m.candidate);if(pc.remoteDescription)await pc.addIceCandidate(c);else iceQueue.push(c)}
+  else if(m.type==='hangup'){if(pc)pc.close();pc=null;video.srcObject=null;document.querySelector('#am-state').textContent='Desktop sharing stopped'};
+  else if(m.type==='error')document.querySelector('#am-state').textContent=m.message;
+ };
+ ws.onclose=()=>document.querySelector('#am-state').textContent='Signalling disconnected';
+}
+atomosReceiver().catch(e=>document.querySelector('#am-state').textContent='Receiver error: '+e.message);
+        </script>
         """.trimIndent()
     }
 }
