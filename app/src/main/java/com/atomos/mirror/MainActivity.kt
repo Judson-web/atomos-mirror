@@ -166,10 +166,10 @@ class MainActivity : ComponentActivity() {
             val qrHost = data.optString("host")
             if (qrHost != expectedHost) return "This QR belongs to another network address. Refresh the QR on the connected PC and try again."
             val token = data.optString("token")
-            if (!service.approvePairingToken(token)) return "This QR has expired. Generate a fresh QR on the computer."
+            if (!service.approvePairingToken(token)) return "This QR has expired. Generate a fresh QR on the laptop."
             
             serviceRevision.intValue++
-            "Computer approved. Return to the computer and start mirroring."
+            "Laptop approved. Return to the laptop and start mirroring."
         } catch (_: Exception) {
             "Could not read the pairing code. Try scanning the QR again."
         }
@@ -233,7 +233,7 @@ private fun MirrorApp(
     var internalAudio by remember { mutableStateOf(initialInternalAudio) }
     var autoStart by remember { mutableStateOf(initialAutoStart) }
     var snapshot by remember { mutableStateOf(snapshotProvider()) }
-    var pairingMessage by remember { mutableStateOf("Scan the QR displayed on your computer to approve pairing.") }
+    var pairingMessage by remember { mutableStateOf("Scan the QR displayed on your laptop to approve pairing.") }
 
     LaunchedEffect(hosting, serviceRevision) {
         while (true) {
@@ -339,8 +339,8 @@ private fun HomePage(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Pair your computer", fontWeight = FontWeight.Bold)
-                        Text(if (snapshot.paired) "Computer approved" else "Scan the QR code shown on your computer", color = Color(0xFF9EADC7), fontSize = 12.sp)
+                        Text("Pair your laptop", fontWeight = FontWeight.Bold)
+                        Text(if (snapshot.paired) "Laptop approved" else "Scan the QR code shown on your laptop", color = Color(0xFF9EADC7), fontSize = 12.sp)
                     }
                     TextButton(onClick = onGoPair) { Text("Open") }
                 }
@@ -395,7 +395,7 @@ private fun PairPage(hosting: Boolean, message: String, onStart: () -> Unit, onS
                         else permissionLauncher.launch(Manifest.permission.CAMERA)
                     }, modifier = Modifier.fillMaxWidth()) { Text("Scan pairing QR") }
                 }
-                Text(message, color = if (message.startsWith("Computer approved")) Color(0xFF75DDB7) else Color(0xFF9EADC7), fontSize = 12.sp)
+                Text(message, color = if (message.startsWith("Laptop approved")) Color(0xFF75DDB7) else Color(0xFF9EADC7), fontSize = 12.sp)
                 if (cameraError.isNotBlank()) Text(cameraError, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             }
         }
