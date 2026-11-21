@@ -68,3 +68,8 @@ The Android LAN receiver is now owned by a dedicated foreground service rather t
 ## v0.6.0 live connection state and recovery
 
 The signalling server now maintains a live registry of paired devices, including display name, role, connection state and connection timestamp. The local dashboard reads this registry through `/api/status` and updates its connected-device list while running. The Windows companion and Android screen sender retry lost signalling connections with bounded exponential backoff. Active streams are re-negotiated when a peer rejoins. The browser receiver also retries signalling connections with bounded exponential backoff. These changes improve recovery from transient Wi-Fi or app interruptions; they do not guarantee seamless media continuity, and real-device/network testing remains required.
+
+
+## v0.7.0 live connection diagnostics
+
+The Windows companion and Android browser receiver now collect WebRTC statistics while a peer connection is active: measured video bitrate, frame rate, packet loss (on receiving peers), and round-trip time when the selected ICE candidate pair exposes it. Android's MediaProjection sender also samples its WebRTC statistics and relays sender telemetry to paired clients over the authenticated local signalling channel. Connection-state and ICE failures now display actionable troubleshooting guidance. Metrics are sampled approximately once per second; individual fields may show unavailable when a WebRTC implementation does not expose that statistic. These diagnostics do not replace real device/network validation.
