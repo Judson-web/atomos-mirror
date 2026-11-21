@@ -92,7 +92,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onStopAndroid = { stopService(Intent(this, AndroidScreenShareService::class.java)) },
                     addressProvider = {
-                        receiverService?.let { "http://" + it.localAddress() + ":" + it.httpPort + "\nPairing PIN: " + it.pairingPin } ?: ""
+                        receiverService?.let {
+                            if (it.statusText() != "Ready") it.statusText()
+                            else "http://" + it.localAddress() + ":" + it.httpPort + "\nPairing PIN: " + it.pairingPin
+                        } ?: "Starting receiver…"
                     }
                 )
             }
