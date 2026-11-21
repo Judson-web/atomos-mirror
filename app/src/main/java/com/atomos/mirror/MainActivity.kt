@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
                     onShareAndroid = { if (signal == null) startReceiver(); captureLauncher.launch(projectionManager.createScreenCaptureIntent()) },
-                    onStopAndroid = { startService(Intent(this, AndroidScreenShareService::class.java).setAction(AndroidScreenShareService.ACTION_STOP)) },
+                    onStopAndroid = { stopService(Intent(this, AndroidScreenShareService::class.java)) },
                     addressProvider = { val http = server; val ws = signal; if (http != null && ws != null) "http://" + http.localAddress() + ":" + http.listeningPort + "\nPairing PIN: " + ws.pairingPin else "" }
                 )
             }
