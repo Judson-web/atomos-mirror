@@ -6,7 +6,15 @@ plugins {
 android {
  namespace = "com.atomos.mirror"
  compileSdk = 36
- defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 8; versionName = "0.8.0" }
+ defaultConfig { applicationId = "com.atomos.mirror"; minSdk = 26; targetSdk = 36; versionCode = 9; versionName = "1.0.0" }
+ signingConfigs {
+  create("release") {
+   storeFile = file(System.getenv("ATOMOS_SIGNING_STORE_FILE") ?: "release.keystore")
+   storePassword = System.getenv("ATOMOS_SIGNING_STORE_PASSWORD") ?: ""
+   keyAlias = System.getenv("ATOMOS_SIGNING_KEY_ALIAS") ?: "atomos-release"
+   keyPassword = System.getenv("ATOMOS_SIGNING_KEY_PASSWORD") ?: ""
+  }
+ }
  buildFeatures { compose = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }
