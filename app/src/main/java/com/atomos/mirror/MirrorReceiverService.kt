@@ -66,7 +66,7 @@ class MirrorReceiverService : Service() {
             val signalling = SignalServer(SIGNAL_PORT)
             signalling.start()
             signalServer = signalling
-            val http = LocalReceiverServer(applicationContext, HTTP_PORT, signalling.pairingPin)
+            val http = LocalReceiverServer(applicationContext, HTTP_PORT, signalling.pairingPin) { signalling.devicesJson() }
             http.start()
             httpServer = http
             advertiseReceiver(signalling.pairingPin)
