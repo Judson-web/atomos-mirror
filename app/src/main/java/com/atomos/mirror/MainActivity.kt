@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             val token = receiverService?.approvedPairingToken()
-                ?: receiverPrefs.getString("pairing_token", null)
+                ?: null
             if (!token.isNullOrBlank()) {
                 val shareIntent = Intent(this, AndroidScreenShareService::class.java)
                     .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
                 MirrorApp(
                     initialHosting = receiverPrefs.getBoolean("receiver_enabled", false),
                     initialMicrophone = receiverPrefs.getBoolean("microphone_enabled", false),
-                    initialAutoStart = receiverPrefs.getBoolean("receiver_enabled", false),
+                    initialAutoStart = receiverPrefs.getBoolean("auto_start_receiver", false),
                     serviceRevision = serviceRevision.intValue,
                     snapshotProvider = { receiverSnapshot() },
                     onStart = { startReceiver() },
@@ -125,11 +125,11 @@ class MainActivity : ComponentActivity() {
                             .setAction(AndroidScreenShareService.ACTION_STOP))
                     },
                     onMicrophoneChange = { shareWithMicrophone = it; receiverPrefs.edit().putBoolean("microphone_enabled", it).apply() },
-                    onAutoStartChange = { receiverPrefs.edit().putBoolean("receiver_enabled", it).apply() }
+                    onAutoStartChange = { receiverPrefs.edit().putBoolean("auto_start_receiver", it).apply() }
                 )
             }
         }
-        if (receiverPrefs.getBoolean("receiver_enabled", false)) startReceiver()
+        if (receiverPrefs.getBoolean("auto_start_receiver", false)) startReceiver()
     }
 
     private fun receiverSnapshot(): ReceiverSnapshot {
@@ -159,7 +159,7 @@ class MainActivity : ComponentActivity() {
             if (qrHost != expectedHost) return "This QR belongs to another network address. Refresh the QR on the connected PC and try again."
             val token = data.optString("token")
             if (!service.approvePairingToken(token)) return "This QR has expired. Generate a fresh QR on the computer."
-            receiverPrefs.edit().putString("pairing_token", token).apply()
+            receiverPrefs.edit().remove("pairing_token").apply()
             serviceRevision.intValue++
             "Computer approved. Return to the computer and start mirroring."
         } catch (_: Exception) {
