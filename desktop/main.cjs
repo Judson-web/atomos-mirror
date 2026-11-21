@@ -15,7 +15,6 @@ ipcMain.handle("atomos:discover", async () => {
       name: service.name || "Atomos Mirror",
       host: address,
       port: service.port || 8765,
-      pin: String(txt.pin || ""),
       signalPort: Number(txt.signalPort || 8766)
     });
   });
