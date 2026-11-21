@@ -8,12 +8,64 @@ let reconnectAttempts = 0;
 let reconnectTimer = null;
 let reconnectEnabled = false;
 let lastPairing = null;
+let statsTimer = null;
+let previousStats = null;
+let previousStatsAt = 0;
 
 function status(text, online = false) {
   $("status").textContent = text.toUpperCase();
   $("status").classList.toggle("online", online);
 }
 function hint(text) { $("hint").textContent = text; }
+function diag(id, value) { const node = $(id); if (node) node.textContent = value; }
+function explainConnection(state, iceState) {
+  if (state === "connected") return "Media path is connected. Metrics update every second.";
+  if (state === "connecting" || iceState === "checking") return "Negotiating a direct local network path. Check that both devices are on the same Wi-Fi.";
+  if (state === "disconnected") return "Network interruption detected. Keep both devices awake and on the same Wi-Fi; recovery is being attempted.";
+  if (state === "failed") return "WebRTC path failed. Check Wi-Fi client isolation, VPNs, and firewall rules, then reconnect.";
+  if (state === "closed") return "Media connection is closed.";
+  return "Waiting for a WebRTC media connection.";
+}
+async function updateDiagnostics() {
+  const current = peer;
+  if (!current) {
+    diag("diag-state", "Not connected"); diag("diag-bitrate", "—"); diag("diag-fps", "—");
+    diag("diag-loss", "—"); diag("diag-rtt", "—"); diag("diag-advice", "Connect and start a stream to collect live metrics.");
+    previousStats = null; previousStatsAt = 0; return;
+  }
+  try {
+    const report = await current.getStats();
+    let bytes = 0, fps = 0, lost = 0, received = 0, rtt = null, codec = "";
+    report.forEach(stat => {
+      if (stat.type === "outbound-rtp" && !stat.isRemote && (stat.kind === "video" || stat.mediaType === "video")) {
+        bytes += stat.bytesSent || 0; fps = stat.framesPerSecond || stat.framesEncoded || fps;
+      }
+      if (stat.type === "inbound-rtp" && (stat.kind === "video" || stat.mediaType === "video")) {
+        bytes += stat.bytesReceived || 0; fps = stat.framesPerSecond || stat.framesDecoded || fps;
+        lost += stat.packetsLost || 0; received += stat.packetsReceived || 0;
+      }
+      if (stat.type === "candidate-pair" && (stat.state === "succeeded") && (stat.nominated || stat.selected)) rtt = stat.currentRoundTripTime ?? rtt;
+      if (stat.type === "codec" && stat.mimeType) codec = stat.mimeType;
+    });
+    const now = performance.now();
+    let rate = null;
+    if (previousStats && previousStatsAt && now > previousStatsAt) rate = Math.max(0, (bytes - previousStats.bytes) * 8 / ((now - previousStatsAt) / 1000));
+    previousStats = { bytes }; previousStatsAt = now;
+    const state = current.connectionState || current.iceConnectionState || "unknown";
+    diag("diag-state", state.toUpperCase());
+    diag("diag-bitrate", rate == null ? "Measuring…" : (rate >= 1000000 ? (rate / 1000000).toFixed(2) + " Mbps" : Math.round(rate / 1000) + " kbps"));
+    diag("diag-fps", fps ? Math.round(fps) + " FPS" : "—");
+    diag("diag-loss", received + lost ? ((lost / (received + lost)) * 100).toFixed(2) + "%" : "—");
+    diag("diag-rtt", rtt == null ? "—" : Math.round(rtt * 1000) + " ms");
+    diag("diag-advice", explainConnection(state, current.iceConnectionState) + (codec ? " Codec: " + codec + "." : ""));
+  } catch (error) { diag("diag-state", "Stats unavailable"); diag("diag-advice", "The browser could not read WebRTC statistics: " + error.message); }
+}
+function startDiagnostics() {
+  if (statsTimer) clearInterval(statsTimer);
+  statsTimer = setInterval(updateDiagnostics, 1000);
+  updateDiagnostics();
+}
+
 function send(message) {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
@@ -98,6 +150,7 @@ async function connect(role = "sender", retry = false) {
       peer.onicecandidate = event => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
       peer.onconnectionstatechange = () => {
         $("quality").textContent = peer ? peer.connectionState : "Disconnected";
+        startDiagnostics();
         if (peer && ["failed", "disconnected"].includes(peer.connectionState)) hint("Media connection interrupted. Waiting for the sender to reconnect…");
       };
       await peer.setRemoteDescription(message.description);
@@ -175,6 +228,7 @@ async function negotiateDesktopStream() {
   peer.onicecandidate = event => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
   peer.onconnectionstatechange = () => {
     $("quality").textContent = peer ? peer.connectionState : "Disconnected";
+    startDiagnostics();
     if (peer && ["failed", "disconnected"].includes(peer.connectionState)) hint("Media path interrupted. Signalling will attempt to restore the session.");
   };
   const offer = await peer.createOffer();
@@ -210,6 +264,7 @@ function stop() {
   $("share").disabled = !(activeRole === "sender" && socket && socket.readyState === WebSocket.OPEN);
   send({ type: "hangup" });
   $("quality").textContent = "Not sharing";
+  updateDiagnostics();
   hint("Screen sharing stopped.");
 }
 $("connect").addEventListener("click", () => connect("sender"));
