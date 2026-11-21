@@ -1,6 +1,8 @@
 package com.atomos.mirror
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -28,21 +30,28 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     private var server: LocalReceiverServer? = null
     private var signal: SignalServer? = null
+    private var shareWithMicrophone = false
+    private lateinit var projectionManager: MediaProjectionManager
+    private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val pin = signal?.pairingPin
+            if (pin != null) {
+                val shareIntent = Intent(this, AndroidScreenShareService::class.java)
+                    .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
+                    .putExtra(AndroidScreenShareService.EXTRA_PIN, pin)
+                    .putExtra(AndroidScreenShareService.EXTRA_MICROPHONE, shareWithMicrophone)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(shareIntent) else startService(shareIntent)
+            }
+        }
+    }
+    private val microphonePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) shareWithMicrophone = false
+        captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                val pin = signal?.pairingPin
-                if (pin != null) {
-                    val shareIntent = Intent(this, AndroidScreenShareService::class.java)
-                        .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
-                        .putExtra(AndroidScreenShareService.EXTRA_PIN, pin)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(shareIntent) else startService(shareIntent)
-                }
-            }
-        }
+        projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFF86A9FF), background = Color(0xFF090D18),
@@ -51,7 +60,13 @@ class MainActivity : ComponentActivity() {
                 MirrorHome(
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
-                    onShareAndroid = { if (signal == null) startReceiver(); captureLauncher.launch(projectionManager.createScreenCaptureIntent()) },
+                    onShareAndroid = { withMicrophone ->
+                        if (signal == null) startReceiver()
+                        shareWithMicrophone = withMicrophone
+                        if (withMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        else captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+                    },
                     onStopAndroid = { stopService(Intent(this, AndroidScreenShareService::class.java)) },
                     addressProvider = { val http = server; val ws = signal; if (http != null && ws != null) "http://" + http.localAddress() + ":" + http.listeningPort + "\nPairing PIN: " + ws.pairingPin else "" }
                 )
@@ -75,8 +90,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: () -> Unit, onStopAndroid: () -> Unit, addressProvider: () -> String) {
+private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: (Boolean) -> Unit, onStopAndroid: () -> Unit, addressProvider: () -> String) {
     var hosting by remember { mutableStateOf(false) }
+    var microphoneEnabled by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf("") }
     LaunchedEffect(hosting) {
         while (hosting) { address = addressProvider(); delay(1000) }
@@ -117,7 +133,15 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: 
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Button(onClick = onShareAndroid, enabled = hosting, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) { Text("Share this Android screen to Windows", fontWeight = FontWeight.Bold) }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Include microphone", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text("Optional live voice audio", color = Color(0xFF8999B4), fontSize = 11.sp)
+                }
+                Switch(checked = microphoneEnabled, onCheckedChange = { microphoneEnabled = it })
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { onShareAndroid(microphoneEnabled) }, enabled = hosting, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) { Text("Share this Android screen to Windows", fontWeight = FontWeight.Bold) }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onStopAndroid, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(14.dp)) { Text("Stop phone screen sharing") }
             Spacer(Modifier.height(18.dp))
