@@ -197,7 +197,7 @@ class AndroidScreenSender(
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     private fun startInternalAudioCapture() {
-        if (audioProjectionData == null || playbackRunning || stopped) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || audioProjectionData == null || playbackRunning || stopped) return
         try {
             val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val projection = manager.getMediaProjection(Activity.RESULT_OK, audioProjectionData) ?: return
