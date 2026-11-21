@@ -1,6 +1,6 @@
 {
   "name": "atomos-mirror-desktop",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Windows desktop sender for Atomos Mirror",
   "main": "main.cjs",
@@ -30,7 +30,9 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "Atomos-Mirror-Setup-${version}.${ext}"
+      "artifactName": "Atomos-Mirror-Setup-${version}.${ext}",
+      "signAndEditExecutable": true,
+      "forceCodeSigning": true
     },
     "nsis": {
       "oneClick": false,
