@@ -21,6 +21,6 @@ dependencies {
  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.0")
  implementation("org.nanohttpd:nanohttpd:2.3.1")
  implementation("org.java-websocket:Java-WebSocket:1.5.7")
- implementation("io.github.webrtc-sdk:android:150.7871.04")
+ implementation("io.getstream:stream-webrtc-android:1.3.10")
  debugImplementation("androidx.compose.ui:ui-tooling")
 }
