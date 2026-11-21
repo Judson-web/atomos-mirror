@@ -26,13 +26,27 @@ class LocalReceiverServer(context: Context, port: Int = 8765, private val peerSn
     fun localAddress(): String {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val network = interfaces.nextElement()
-                if (!network.isUp || network.isLoopback) continue
+            val candidates = mutableListOf<NetworkInterface>()
+            while (interfaces.hasMoreElements()) candidates.add(interfaces.nextElement())
+            val ordered = candidates.filter { network ->
+                val name = network.name.lowercase()
+                network.isUp && !network.isLoopback &&
+                    !name.startsWith("tun") && !name.startsWith("ppp") &&
+                    !name.startsWith("wg") && !name.contains("tailscale")
+            }.sortedBy { network ->
+                val name = network.name.lowercase()
+                when {
+                    name.startsWith("wlan") || name.startsWith("wifi") -> 0
+                    name.startsWith("eth") -> 1
+                    else -> 2
+                }
+            }
+            for (network in ordered) {
                 val addresses = network.inetAddresses
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
-                    if (address is Inet4Address && !address.isLoopbackAddress && !address.isLinkLocalAddress)
+                    if (address is Inet4Address && address.isSiteLocalAddress &&
+                        !address.isLoopbackAddress && !address.isLinkLocalAddress)
                         return address.hostAddress ?: "Unavailable"
                 }
             }
