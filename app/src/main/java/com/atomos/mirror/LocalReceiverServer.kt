@@ -62,21 +62,21 @@ const main=document.querySelector('main');
 const panel=document.createElement('section');panel.style.cssText='background:#111a2b;border:1px solid #25324a;border-radius:20px;padding:20px;margin-top:18px';
 panel.innerHTML='<h3>Live desktop stream</h3><p id="am-state" style="color:#9eabc2">Waiting for Windows companion…</p><div id="am-metrics" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0"><div class="stat"><span>Bitrate</span><b id="am-bitrate">—</b></div><div class="stat"><span>FPS</span><b id="am-fps">—</b></div><div class="stat"><span>Loss</span><b id="am-loss">—</b></div><div class="stat"><span>RTT</span><b id="am-rtt">—</b></div></div><p id="am-remote" class="muted" style="font-size:11px">WebRTC diagnostics will appear when streaming starts.</p>';
 panel.appendChild(video);main.appendChild(panel);
-let amPreviousBytes=0,amPreviousAt=0;
+let amPreviousBytes=0,amPreviousFrames=0,amPreviousAt=0;
 function amMetric(id,value){const el=document.querySelector('#'+id);if(el)el.textContent=value}
 async function amUpdateStats(){
  if(!pc){amMetric('am-bitrate','—');amMetric('am-fps','—');amMetric('am-loss','—');amMetric('am-rtt','—');return}
  try{
-  const report=await pc.getStats();let bytes=0,fps=0,lost=0,received=0,rtt=null;
+  const report=await pc.getStats();let bytes=0,fps=0,frames=0,lost=0,received=0,rtt=null;
   report.forEach(s=>{
-   if(s.type==='inbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesReceived||0;fps=s.framesPerSecond||s.framesDecoded||fps;lost+=s.packetsLost||0;received+=s.packetsReceived||0}
-   if(s.type==='outbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesSent||0;fps=s.framesPerSecond||s.framesEncoded||fps}
+   if(s.type==='inbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesReceived||0;fps=s.framesPerSecond||fps;frames+=s.framesDecoded||0;lost+=s.packetsLost||0;received+=s.packetsReceived||0}
+   if(s.type==='outbound-rtp'&&(s.kind==='video'||s.mediaType==='video')){bytes+=s.bytesSent||0;fps=s.framesPerSecond||fps;frames+=s.framesEncoded||0}
    if(s.type==='candidate-pair'&&s.state==='succeeded'&&(s.nominated||s.selected))rtt=s.currentRoundTripTime??rtt
   });
-  const now=performance.now(),rate=amPreviousAt&&now>amPreviousAt?Math.max(0,(bytes-amPreviousBytes)*8/((now-amPreviousAt)/1000)):null;
-  amPreviousBytes=bytes;amPreviousAt=now;
+  const now=performance.now(),seconds=amPreviousAt&&now>amPreviousAt?(now-amPreviousAt)/1000:0,rate=seconds?Math.max(0,(bytes-amPreviousBytes)*8/seconds):null,measuredFps=fps||(seconds?Math.max(0,(frames-amPreviousFrames)/seconds):0);
+  amPreviousBytes=bytes;amPreviousFrames=frames;amPreviousAt=now;
   amMetric('am-bitrate',rate==null?'Measuring…':rate>=1e6?(rate/1e6).toFixed(2)+' Mbps':Math.round(rate/1000)+' kbps');
-  amMetric('am-fps',fps?Math.round(fps)+' FPS':'—');
+  amMetric('am-fps',measuredFps?Math.round(measuredFps)+' FPS':'—');
   amMetric('am-loss',received+lost?((lost/(received+lost))*100).toFixed(2)+'%':'—');
   amMetric('am-rtt',rtt==null?'—':Math.round(rtt*1000)+' ms');
  }catch(e){amMetric('am-remote','Stats unavailable: '+e.message)}
