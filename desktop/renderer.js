@@ -56,9 +56,9 @@ $("discover").addEventListener("click", async () => {
 
 async function connect(role = "sender", retry = false) {
   activeRole = role;
-  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace(/^https?:\\/\\//, "").replace(/\\/$/, "");
+  const host = retry && lastPairing ? lastPairing.host : $("host").value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const pin = retry && lastPairing ? lastPairing.pin : $("pin").value.trim();
-  if (!host || !/^\\d{6}$/.test(pin)) return hint("Enter the Android local IP address and its six-digit pairing PIN.");
+  if (!host || !/^\d{6}$/.test(pin)) return hint("Enter the Android local IP address and its six-digit pairing PIN.");
   if (!retry) {
     reconnectEnabled = true;
     reconnectAttempts = 0;
