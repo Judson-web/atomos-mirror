@@ -63,3 +63,8 @@ Source code and CI builds are not substitutes for an end-to-end device test. Val
 ## v0.5.0 receiver lifecycle
 
 The Android LAN receiver is now owned by a dedicated foreground service rather than the launcher Activity. Starting the receiver creates a persistent notification and keeps the HTTP dashboard, WebSocket signalling endpoint, and mDNS advertisement alive when the app is backgrounded or the Activity is recreated. Stopping the receiver explicitly tears down those resources. This lifecycle change has been added to the Android CI build; real-device background/foreground behavior still needs verification on target Android versions and vendor battery-management settings.
+
+
+## v0.6.0 live connection state and recovery
+
+The signalling server now maintains a live registry of paired devices, including display name, role, connection state and connection timestamp. The local dashboard reads this registry through `/api/status` and updates its connected-device list while running. The Windows companion retries a lost signalling connection with exponential backoff and re-negotiates an active desktop stream after rejoining. The browser receiver also retries signalling connections with bounded exponential backoff. These changes improve recovery from transient Wi-Fi or app interruptions; they do not guarantee seamless media continuity, and real-device/network testing remains required.
