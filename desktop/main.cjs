@@ -1,7 +1,31 @@
 const { app, BrowserWindow, desktopCapturer, session, ipcMain } = require("electron");
 const path = require("node:path");
+const { Bonjour } = require("bonjour-service");
 
 let selectedSourceId = null;
+ipcMain.handle("atomos:discover", async () => {
+  const bonjour = new Bonjour();
+  const found = new Map();
+  const browser = bonjour.find({ type: "atomosmirror", protocol: "tcp" });
+  browser.on("up", service => {
+    const address = (service.addresses || []).find(value => value.includes("."));
+    if (!address) return;
+    const txt = service.txt || {};
+    found.set(address, {
+      name: service.name || "Atomos Mirror",
+      host: address,
+      port: service.port || 8765,
+      pin: String(txt.pin || ""),
+      signalPort: Number(txt.signalPort || 8766)
+    });
+  });
+  return await new Promise(resolve => {
+    setTimeout(() => {
+      try { browser.stop(); bonjour.destroy(); } catch {}
+      resolve(Array.from(found.values()));
+    }, 3500);
+  });
+});
 ipcMain.handle("atomos:list-sources", async () => {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"], fetchWindowIcons: false,
