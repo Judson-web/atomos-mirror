@@ -51,7 +51,8 @@ private enum class AppPage { HOME, PAIR, DEVICES, SETTINGS }
 class MainActivity : ComponentActivity() {
     private var receiverService: MirrorReceiverService? = null
     private var bound = false
-    private var shareWithMicrophone = false
+    private var shareWithInternalAudio = false
+    private var pendingVideoProjection: Intent? = null
     private var pendingShareRequest = false
     private val receiverPrefs by lazy { getSharedPreferences("atomos_mirror", MODE_PRIVATE) }
     private lateinit var projectionManager: MediaProjectionManager
@@ -76,21 +77,32 @@ class MainActivity : ComponentActivity() {
 
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            val token = receiverService?.approvedPairingToken()
-                ?: null
-            if (!token.isNullOrBlank()) {
-                val shareIntent = Intent(this, AndroidScreenShareService::class.java)
-                    .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, result.data)
-                    .putExtra(AndroidScreenShareService.EXTRA_PAIRING_TOKEN, token)
-                    .putExtra(AndroidScreenShareService.EXTRA_MICROPHONE, shareWithMicrophone)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(shareIntent) else startService(shareIntent)
-            }
-        }
+            pendingVideoProjection = result.data
+            if (shareWithInternalAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                audioCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+            } else launchScreenShare(null)
+        } else pendingVideoProjection = null
+    }
+
+    private val audioCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        launchScreenShare(if (result.resultCode == RESULT_OK) result.data else null)
     }
 
     private val microphonePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) shareWithMicrophone = false
+        if (!granted) shareWithInternalAudio = false
         captureLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+
+    private fun launchScreenShare(audioProjection: Intent?) {
+        val videoProjection = pendingVideoProjection ?: return
+        pendingVideoProjection = null
+        val token = receiverService?.approvedPairingToken() ?: return
+        val shareIntent = Intent(this, AndroidScreenShareService::class.java)
+            .putExtra(AndroidScreenShareService.EXTRA_PROJECTION, videoProjection)
+            .putExtra(AndroidScreenShareService.EXTRA_PAIRING_TOKEN, token)
+            .putExtra(AndroidScreenShareService.EXTRA_AUDIO_PROJECTION, audioProjection)
+            .putExtra(AndroidScreenShareService.EXTRA_MICROPHONE, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(shareIntent) else startService(shareIntent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,23 +117,23 @@ class MainActivity : ComponentActivity() {
             )) {
                 MirrorApp(
                     initialHosting = receiverPrefs.getBoolean("receiver_enabled", false) || receiverPrefs.getBoolean("auto_start_receiver", false),
-                    initialMicrophone = receiverPrefs.getBoolean("microphone_enabled", false),
+                    initialInternalAudio = receiverPrefs.getBoolean("internal_audio_enabled", false),
                     initialAutoStart = receiverPrefs.getBoolean("auto_start_receiver", false),
                     serviceRevision = serviceRevision.intValue,
                     snapshotProvider = { receiverSnapshot() },
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
                     onPairingQr = { payload -> approvePairingQr(payload) },
-                    onShareAndroid = { withMicrophone ->
-                        shareWithMicrophone = withMicrophone
-                        receiverPrefs.edit().putBoolean("microphone_enabled", withMicrophone).apply()
+                    onShareAndroid = { withInternalAudio ->
+                        shareWithInternalAudio = withInternalAudio
+                        receiverPrefs.edit().putBoolean("internal_audio_enabled", withInternalAudio).apply()
                         if (!receiverService?.approvedPairingToken().isNullOrBlank()) requestScreenCapture()
                     },
                     onStopAndroid = {
                         stopService(Intent(this, AndroidScreenShareService::class.java)
                             .setAction(AndroidScreenShareService.ACTION_STOP))
                     },
-                    onMicrophoneChange = { shareWithMicrophone = it; receiverPrefs.edit().putBoolean("microphone_enabled", it).apply() },
+                    onInternalAudioChange = { shareWithInternalAudio = it; receiverPrefs.edit().putBoolean("internal_audio_enabled", it).apply() },
                     onAutoStartChange = { receiverPrefs.edit().putBoolean("auto_start_receiver", it).apply() }
                 )
             }
@@ -164,7 +176,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestScreenCapture() {
-        if (shareWithMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+        if (shareWithInternalAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         else captureLauncher.launch(projectionManager.createScreenCaptureIntent())
     }
@@ -203,7 +216,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MirrorApp(
     initialHosting: Boolean,
-    initialMicrophone: Boolean,
+    initialInternalAudio: Boolean,
     initialAutoStart: Boolean,
     serviceRevision: Int,
     snapshotProvider: () -> ReceiverSnapshot,
@@ -212,12 +225,12 @@ private fun MirrorApp(
     onPairingQr: (String) -> String,
     onShareAndroid: (Boolean) -> Unit,
     onStopAndroid: () -> Unit,
-    onMicrophoneChange: (Boolean) -> Unit,
+    onInternalAudioChange: (Boolean) -> Unit,
     onAutoStartChange: (Boolean) -> Unit
 ) {
     var page by remember { mutableStateOf(AppPage.HOME) }
     var hosting by remember { mutableStateOf(initialHosting) }
-    var microphone by remember { mutableStateOf(initialMicrophone) }
+    var internalAudio by remember { mutableStateOf(initialInternalAudio) }
     var autoStart by remember { mutableStateOf(initialAutoStart) }
     var snapshot by remember { mutableStateOf(snapshotProvider()) }
     var pairingMessage by remember { mutableStateOf("Scan the QR displayed on your computer to approve pairing.") }
@@ -249,11 +262,11 @@ private fun MirrorApp(
                 AppPage.HOME -> HomePage(
                     hosting = hosting,
                     snapshot = snapshot,
-                    microphone = microphone,
-                    onMicrophone = { microphone = it; onMicrophoneChange(it) },
+                    internalAudio = internalAudio,
+                    onInternalAudio = { internalAudio = it; onInternalAudioChange(it) },
                     onStart = { onStart(); hosting = true },
                     onStop = { onStop(); hosting = false },
-                    onShare = { onShareAndroid(microphone) },
+                    onShare = { onShareAndroid(internalAudio) },
                     onStopShare = onStopAndroid,
                     onGoPair = { page = AppPage.PAIR }
                 )
@@ -265,9 +278,9 @@ private fun MirrorApp(
                 )
                 AppPage.DEVICES -> DevicesPage(snapshot)
                 AppPage.SETTINGS -> SettingsPage(
-                    microphone = microphone,
+                    internalAudio = internalAudio,
                     autoStart = autoStart,
-                    onMicrophone = { microphone = it; onMicrophoneChange(it) },
+                    onInternalAudio = { internalAudio = it; onInternalAudioChange(it) },
                     onAutoStart = { autoStart = it; onAutoStartChange(it) }
                 )
             }
@@ -293,8 +306,8 @@ private fun PageHeader(title: String, subtitle: String) {
 private fun HomePage(
     hosting: Boolean,
     snapshot: ReceiverSnapshot,
-    microphone: Boolean,
-    onMicrophone: (Boolean) -> Unit,
+    internalAudio: Boolean,
+    onInternalAudio: (Boolean) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onShare: () -> Unit,
@@ -302,7 +315,7 @@ private fun HomePage(
     onGoPair: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        PageHeader("Atomos Mirror", "Two-way local screen streaming")
+        PageHeader("Atomos Mirror", "Android to laptop streaming")
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(if (hosting) Icons.Rounded.Wifi else Icons.Rounded.WifiOff, null,
                 tint = if (hosting) Color(0xFF75DDB7) else Color.LightGray)
@@ -312,7 +325,7 @@ private fun HomePage(
             Text(snapshot.status, color = Color(0xFF8999B4), fontSize = 11.sp)
         }
         Text("Your devices. One screen.", fontSize = 31.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold)
-        Text("Mirror across your private Wi-Fi network. No cloud account required.", color = Color(0xFF9EADC7), lineHeight = 22.sp)
+        Text("Send your phone screen and supported device audio to a laptop browser over private Wi-Fi.", color = Color(0xFF9EADC7), lineHeight = 22.sp)
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF121B2C)), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("LOCAL RECEIVER", color = Color(0xFF8EAEFF), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -333,10 +346,10 @@ private fun HomePage(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Include microphone", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text("Optional voice audio when sharing your phone", color = Color(0xFF8999B4), fontSize = 11.sp)
+                        Text("Internal device audio", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text("Capture supported media and game audio", color = Color(0xFF8999B4), fontSize = 11.sp)
                     }
-                    Switch(checked = microphone, onCheckedChange = onMicrophone)
+                    Switch(checked = internalAudio, onCheckedChange = onInternalAudio)
                 }
                 Button(onClick = onShare, enabled = hosting && snapshot.paired, modifier = Modifier.fillMaxWidth()) {
                     Text("Share this phone screen")
@@ -423,16 +436,16 @@ private fun DevicesPage(snapshot: ReceiverSnapshot) {
 
 @Composable
 private fun SettingsPage(
-    microphone: Boolean,
+    internalAudio: Boolean,
     autoStart: Boolean,
-    onMicrophone: (Boolean) -> Unit,
+    onInternalAudio: (Boolean) -> Unit,
     onAutoStart: (Boolean) -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PageHeader("Settings", "App preferences and information")
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF121B2C)), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                SettingSwitch("Microphone audio", "Include phone microphone when screen sharing", microphone, onMicrophone)
+                SettingSwitch("Internal audio capture", "Capture supported media and game playback (Android 10+)", internalAudio, onInternalAudio)
                 HorizontalDivider(color = Color(0xFF293750))
                 SettingSwitch("Start receiver on launch", "Keep the local receiver ready when you open the app", autoStart, onAutoStart)
             }
@@ -440,8 +453,8 @@ private fun SettingsPage(
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF121B2C)), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("ATOMOS MIRROR", color = Color(0xFF8EAEFF), fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                Text("Version 1.1.0", fontWeight = FontWeight.SemiBold)
-                Text("Local-network screen mirroring. WebRTC media is sent directly between paired devices. Android internal playback audio is not supported yet.", color = Color(0xFF9EADC7), fontSize = 12.sp, lineHeight = 19.sp)
+                Text("Version 1.2.0", fontWeight = FontWeight.SemiBold)
+                Text("One-way Android-to-laptop mirroring. Internal playback capture depends on Android version and source-app capture policy.", color = Color(0xFF9EADC7), fontSize = 12.sp, lineHeight = 19.sp)
             }
         }
     }
