@@ -196,7 +196,7 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, onShareAndroid: 
             FeatureLine("Android → Windows", "MediaProjection sender integrated, device test pending")
             FeatureLine("Microphone audio", "Optional, permission-gated")
             Spacer(Modifier.weight(1f))
-            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.5.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
+            Text("ATOMOS MIRROR  ·  DEVELOPMENT BUILD  ·  v0.7.0", color = Color(0xFF687995), fontSize = 10.sp, letterSpacing = 1.sp)
         }
     }
 }
