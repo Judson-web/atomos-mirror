@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private var server: LocalReceiverServer? = null
+    private var signal: SignalServer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,19 +35,23 @@ class MainActivity : ComponentActivity() {
                 MirrorHome(
                     onStart = { startReceiver() },
                     onStop = { stopReceiver() },
-                    addressProvider = { server?.let { "http://${it.localAddress()}:${it.listeningPort}" } ?: "" }
+                    addressProvider = { val http = server; val ws = signal; if (http != null && ws != null) "http://" + http.localAddress() + ":" + http.listeningPort + "\nPairing PIN: " + ws.pairingPin else "" }
                 )
             }
         }
     }
 
     private fun startReceiver() {
-        if (server?.isAlive == true) return
-        try { server = LocalReceiverServer(this).also { it.start() } }
-        catch (_: Exception) { server = null }
+        if (server?.isAlive == true && signal != null) return
+        try {
+            val signalling = SignalServer()
+            signalling.start()
+            signal = signalling
+            server = LocalReceiverServer(this, pairingPin = signalling.pairingPin).also { it.start() }
+        } catch (_: Exception) { server?.stop(); server = null; signal?.stop(); signal = null }
     }
 
-    private fun stopReceiver() { server?.stop(); server = null }
+    private fun stopReceiver() { server?.stop(); server = null; signal?.stop(); signal = null }
 
     override fun onDestroy() { stopReceiver(); super.onDestroy() }
 }
@@ -66,7 +71,7 @@ private fun MirrorHome(onStart: () -> Unit, onStop: () -> Unit, addressProvider:
                     Box(contentAlignment = Alignment.Center) { Text("A", fontSize = 25.sp, fontWeight = FontWeight.Black, color = Color.White) }
                 }
                 Spacer(Modifier.width(12.dp))
-                Column { Text("Atomos Mirror", fontSize = 21.sp, fontWeight = FontWeight.Bold); Text("Local screen streaming", color = Color(0xFF9EADC7), fontSize = 12.sp) }
+                Column { Text("Atomos Mirror", fontSize = 21.sp, fontWeight = FontWeight.Bold); Text("Two-way local screen streaming", color = Color(0xFF9EADC7), fontSize = 12.sp) }
                 Spacer(Modifier.weight(1f))
                 Icon(if (hosting) Icons.Rounded.Wifi else Icons.Rounded.WifiOff, null, tint = if (hosting) Color(0xFF75DDB7) else Color.LightGray)
             }
