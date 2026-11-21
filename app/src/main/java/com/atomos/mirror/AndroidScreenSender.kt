@@ -7,6 +7,9 @@ import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import org.webrtc.*
 import java.net.URI
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Captures the Android display with MediaProjection and sends it directly to a paired LAN peer. */
 class AndroidScreenSender(
@@ -27,6 +30,9 @@ class AndroidScreenSender(
     private var socket: WebSocketClient? = null
     private val pendingRemoteIce = java.util.concurrent.ConcurrentLinkedQueue<IceCandidate>()
     @Volatile private var stopped = false
+    private val reconnectExecutor = Executors.newSingleThreadScheduledExecutor()
+    private val reconnectPending = AtomicBoolean(false)
+    @Volatile private var reconnectAttempts = 0
 
     fun start() {
         PeerConnectionFactory.initialize(
@@ -84,8 +90,15 @@ class AndroidScreenSender(
         capturer!!.initialize(textureHelper!!, context, videoSource!!.capturerObserver)
         capturer!!.startCapture(1280, 720, 30)
 
-        socket = object : WebSocketClient(URI("ws://127.0.0.1:8766")) {
+        connectSignalling()
+    }
+
+    private fun connectSignalling() {
+        if (stopped) return
+        val client = object : WebSocketClient(URI("ws://127.0.0.1:8766")) {
             override fun onOpen(handshakedata: ServerHandshake?) {
+                reconnectAttempts = 0
+                reconnectPending.set(false)
                 send(JSONObject().put("type", "hello").put("role", "sender")
                     .put("pin", pairingPin).put("name", "Android phone"))
             }
@@ -107,10 +120,21 @@ class AndroidScreenSender(
                     }
                 } catch (_: Exception) { }
             }
-            override fun onClose(code: Int, reason: String?, remote: Boolean) {}
-            override fun onError(ex: Exception?) {}
+            override fun onClose(code: Int, reason: String?, remote: Boolean) { scheduleReconnect() }
+            override fun onError(ex: Exception?) { scheduleReconnect() }
         }
-        socket!!.connect()
+        socket = client
+        try { client.connect() } catch (_: Exception) { scheduleReconnect() }
+    }
+
+    private fun scheduleReconnect() {
+        if (stopped || !reconnectPending.compareAndSet(false, true)) return
+        val waitSeconds = (1L shl reconnectAttempts.coerceAtMost(4)).coerceAtMost(20L)
+        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(5)
+        reconnectExecutor.schedule({
+            reconnectPending.set(false)
+            if (!stopped) connectSignalling()
+        }, waitSeconds, TimeUnit.SECONDS)
     }
 
     private fun createOffer() {
@@ -133,6 +157,8 @@ class AndroidScreenSender(
     fun stop() {
         if (stopped) return
         stopped = true
+        reconnectExecutor.shutdownNow()
+        reconnectPending.set(false)
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { socket?.close() } catch (_: Exception) {}
         try { peer?.close(); peer?.dispose() } catch (_: Exception) {}
