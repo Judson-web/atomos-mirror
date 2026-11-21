@@ -19,6 +19,8 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
     data class Peer(val id: String, val name: String, val role: String, val connectedAt: Long)
     val pairingPin: String = (100000 + SecureRandom().nextInt(900000)).toString()
     private val peers = ConcurrentHashMap<WebSocket, Peer>()
+    private data class AuthWindow(var startedAt: Long, var failures: Int, var blockedUntil: Long = 0L)
+    private val authWindows = ConcurrentHashMap<String, AuthWindow>()
 
     init {
         setConnectionLostTimeout(20)
@@ -72,17 +74,33 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
             conn.close(1008, "Unsupported role")
             return
         }
+        val remoteIp = conn.remoteSocketAddress?.address?.hostAddress ?: "unknown"
+        val now = System.currentTimeMillis()
+        val window = authWindows[remoteIp]
+        if (window != null && window.blockedUntil > now) {
+            conn.send(error("Too many incorrect PIN attempts. Wait before trying again."))
+            conn.close(1008, "Pairing temporarily rate limited")
+            return
+        }
         val supplied = data.optString("pin")
         val validPin = MessageDigest.isEqual(
             supplied.toByteArray(Charsets.UTF_8),
             pairingPin.toByteArray(Charsets.UTF_8)
         )
         if (!validPin) {
+            authWindows.compute(remoteIp) { _, current ->
+                val active = if (current == null || now - current.startedAt > AUTH_WINDOW_MS)
+                    AuthWindow(now, 0) else current
+                active.failures += 1
+                if (active.failures >= MAX_PIN_FAILURES) active.blockedUntil = now + AUTH_LOCKOUT_MS
+                active
+            }
             conn.send(error("Incorrect pairing PIN"))
             conn.close(1008, "Pairing rejected")
             return
         }
 
+        authWindows.remove(remoteIp)
         synchronized(peers) {
             if (peers.size >= MAX_PEERS || peers.values.any { it.role == role }) {
                 conn.send(error("A $role is already connected. Disconnect it before pairing another device."))
@@ -143,5 +161,8 @@ class SignalServer(port: Int = 8766) : WebSocketServer(InetSocketAddress("0.0.0.
     companion object {
         private const val MAX_PEERS = 2
         private const val MAX_SIGNAL_BYTES = 1_000_000
+        private const val MAX_PIN_FAILURES = 5
+        private const val AUTH_WINDOW_MS = 60_000L
+        private const val AUTH_LOCKOUT_MS = 30_000L
     }
 }
