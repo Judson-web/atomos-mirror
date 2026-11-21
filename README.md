@@ -2,7 +2,7 @@
 
 **Two-way local-network screen mirroring for Android and Windows.** The Android app hosts its dashboard and signalling service directly on the phone. The Windows companion is a local desktop app. No cloud hosting or account is required; both devices must share a reachable LAN/Wi-Fi network.
 
-## Implemented in source (0.3.0 development)
+## Implemented in source (0.4.0 development)
 
 - Android-hosted dashboard on TCP 8765 and WebSocket signalling on TCP 8766.
 - Six-digit session PIN required for both signalling peers.
@@ -10,6 +10,10 @@
 - Windows Electron companion with two modes: send desktop to Android, or receive Android screen.
 - Android MediaProjection screen capture through a foreground service and WebRTC native sender.
 - Windows desktop capture through Electron display-media capture, with best-effort loopback audio.
+- Windows source picker for individual displays and windows, including multi-monitor systems.
+- Windows capture quality controls for 720p/1080p/1440p, 24/30/60 FPS and 2/4/8/12 Mbps target video bitrate.
+- mDNS/DNS-SD advertisement from Android and one-click discovery from the Windows companion.
+- Optional Android microphone audio track with an explicit runtime permission prompt.
 - Browser receiver page served from the Android app for Windows-to-Android mirroring.
 
 ## Windows companion
@@ -51,6 +55,6 @@ Allow Atomos Mirror through Windows Defender Firewall on private networks. Guest
 
 ## Current limitations and validation
 
-The Android native sender is video-first; Android internal audio and microphone tracks are not yet connected. The Windows app currently chooses the first available screen/window source rather than presenting a multi-monitor/source picker. Windows system-audio capture is best-effort and depends on Electron and Windows support. Automatic NSD discovery, bitrate/resolution/FPS controls, connection recovery, and receiver-service persistence still need work.
+Android microphone streaming is optional and permission-gated; Android internal playback audio is not yet captured. Windows system-audio capture is best-effort and depends on Electron and Windows support. The Windows quality controls set capture constraints and a target sender bitrate, but actual negotiated quality depends on the display, codec, network and receiver. mDNS discovery depends on multicast being permitted by the Wi-Fi network. Connection recovery and receiver-service persistence still need work.
 
 Source code and CI builds are not substitutes for an end-to-end device test. Validate on a real Android phone and Windows 10/11 machine before treating this as a stable release.
